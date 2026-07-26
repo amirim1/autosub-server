@@ -1,0 +1,7 @@
+# AutoSub Server — modern async stack
+fastapi
+uvicorn
+httpx
+python-multipart
+jinja2
+aiosqlite

@@ -1,0 +1,201 @@
+# AutoSub Server v3.0
+
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+**AutoSub Server** is a local JSON subscription proxy for the **3x-ui** panel.
+
+It intercepts `/json/<subId>` requests from a separate reverse-proxy port, fetches the original JSON subscription from 3x-ui, generates and prepends allowed autoselect profiles (LeastPing balancer) to the profile list, and appends original nodes unchanged after them.
+
+> [Русскоязычная документация доступна в [README.md](README.md).]
+
+---
+
+## 📋 Table of Contents
+
+- [Architecture](#-architecture)
+- [Quick Start](#-quick-start)
+  - [One-line Installation](#one-line-installation-curl)
+  - [Manual Installation](#manual-installation)
+- [First Setup](#-first-setup)
+- [Configuration (.env)](#-configuration-env)
+- [Dashboard & Management](#-dashboard--management)
+- [Nginx Setup](#-nginx-setup)
+- [Updating](#-updating)
+- [Troubleshooting](#-troubleshooting)
+
+---
+
+## 🏗️ Architecture
+
+```text
+Public Client Request:
+https://sub.your-domain.com:2097/json/SUB_ID
+
+3x-ui (Original Subscription):
+https://sub.your-domain.com:2096/sub/SUB_ID  (Base64)
+https://sub.your-domain.com:2096/json/SUB_ID (JSON Upstream)
+
+AutoSub Server (Local Proxy):
+http://127.0.0.1:25500/json/SUB_ID
+
+3x-ui Setting:
+JSON Reverse Proxy URI = https://sub.your-domain.com:2097/json/
+```
+
+---
+
+## 🚀 Quick Start
+
+### One-line Installation (curl)
+
+To automatically install the server and set up the `systemd` background service:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/install.sh | bash
+```
+
+### Manual Installation
+
+```bash
+apt update
+apt install -y python3 nginx git
+
+git clone https://github.com/amirim1/autosub-server.git /opt/autosub-server
+cd /opt/autosub-server
+bash install.sh
+```
+
+---
+
+## ⚙️ First Setup
+
+1. Configure your 3x-ui credentials or API token in the environment file:
+   ```bash
+   nano /opt/autosub-server/.env
+   systemctl restart autosub-server
+   ```
+2. Open your 3x-ui panel settings and set **"JSON reverse proxy URI"** to `https://sub.your-domain.com:2097/json/`.
+3. Set up the Nginx reverse proxy (see [Nginx Setup](#-nginx-setup)).
+4. Access the local AutoSub admin dashboard (see [Dashboard](#-dashboard--management)).
+5. Run **Node Discovery** using a subscription ID that has access to all required nodes.
+6. Select nodes for autoselect profiles (`🚀 Main Autoselect`, `⚡ All Nodes Autoselect`) and save settings.
+
+---
+
+## ⚙️ Configuration (.env)
+
+The environment configuration is located at `/opt/autosub-server/.env`:
+
+```env
+AUTOSUB_HOST=127.0.0.1
+AUTOSUB_PORT=25500
+
+# Password for /admin dashboard (leave empty to disable authentication)
+AUTOSUB_ADMIN_PASSWORD=your_secure_admin_password
+
+# Original 3x-ui JSON subscription upstream URL
+XUI_SUB_URL=https://sub.your-domain.com:2096
+
+# 3x-ui panel/API upstream URL (include secret web base path if used)
+XUI_API_URL=https://panel.your-domain.com:54321
+
+# 3x-ui API token (Settings -> Security -> API Token)
+XUI_API_TOKEN=
+
+# Fallback 3x-ui URL
+XUI_URL=https://sub.your-domain.com:2096
+
+# Verify TLS certificates (true/false)
+XUI_TLS_VERIFY=true
+
+# 3x-ui username & password (if API token is not used)
+XUI_USERNAME=admin
+XUI_PASSWORD=change_me
+
+# Optional custom subscription title header
+# SUB_TITLE=My VPN
+```
+
+---
+
+## 📊 Dashboard & Management
+
+The dashboard is bound to `127.0.0.1` for security. Use an SSH tunnel to connect:
+
+```bash
+ssh -L 25500:127.0.0.1:25500 root@YOUR_SERVER_IP
+```
+
+Then open in your browser: `http://127.0.0.1:25500/admin`
+
+### Client Group Resolution Priority:
+
+1. **Local SQLite (`client_groups`)** — Manual and most stable assignment via dashboard.
+2. **Overrides (`client_group_overrides`)** — Key-value overrides by email/sub_id.
+3. **3x-ui API (fallback)** — Automatic group extraction from 3x-ui panel API.
+
+---
+
+## 🌐 Nginx Setup
+
+### Automatic Setup
+
+```bash
+bash /opt/autosub-server/setup_nginx.sh sub.your-domain.com 2097
+```
+
+### Manual Setup
+
+Copy example configuration `/opt/autosub-server/nginx-example.conf`:
+
+```nginx
+server {
+    listen 2097 ssl http2;
+    server_name sub.your-domain.com;
+
+    ssl_certificate /etc/letsencrypt/live/sub.your-domain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/sub.your-domain.com/privkey.pem;
+
+    location /json/ {
+        proxy_pass http://127.0.0.1:25500/json/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        return 404;
+    }
+}
+```
+
+Enable configuration and reload Nginx:
+
+```bash
+ln -s /etc/nginx/sites-available/autosub-json /etc/nginx/sites-enabled/autosub-json
+nginx -t
+systemctl reload nginx
+```
+
+---
+
+## 🔄 Updating
+
+### One-line Update (curl)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/update.sh | bash
+```
+
+Updates automatically create a backup of your database and configuration in `/opt/autosub-server-backups/`.
+
+---
+
+## 🛠️ Troubleshooting
+
+- **Check service status:** `systemctl status autosub-server`
+- **View live logs:** `journalctl -u autosub-server -f`
+- **Health check:** `curl http://127.0.0.1:25500/health`
+- **Test JSON proxy:** `curl -k https://sub.your-domain.com:2097/json/CLIENT_SUB_ID`

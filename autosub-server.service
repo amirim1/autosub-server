@@ -1,0 +1,15 @@
+[Unit]
+Description=AutoSub JSON subscription proxy
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/autosub-server
+EnvironmentFile=/opt/autosub-server/.env
+ExecStart=/opt/autosub-server/venv/bin/python /opt/autosub-server/autosub_server.py
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target
