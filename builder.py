@@ -146,9 +146,14 @@ def match_profiles(profiles, selected_node_ids, tag_filter=None):
 
 def _sub_headers(resp_headers):
     h = {}
-    for key in ("Subscription-Userinfo", "Profile-Title", "Content-Disposition", "Profile-Update-Interval", "Profile-Web-Page-Url"):
+    keys = (
+        "Subscription-Userinfo", "Profile-Title", "Content-Disposition", 
+        "Profile-Update-Interval", "Profile-Web-Page-Url",
+        "Announce", "Hide-Settings", "Routing", "Routing-Enable"
+    )
+    for key in keys:
         val = resp_headers.get(key)
-        if val:
+        if val is not None:
             h[key] = val
     return h
 
@@ -267,10 +272,30 @@ async def build_for_subscription(sub_id, storage, query=""):
 
     output = dummy_nodes + auto_profiles + remaining_profiles
     
-    # Clean internal fields starting with '_' so clients parse standard Xray JSON properly
+    # Clean internal fields and inject address/port for v2rayNG ping
     def _clean(p):
         if not isinstance(p, dict): return p
-        return {k: v for k, v in p.items() if not str(k).startswith("_")}
+        cleaned = {k: v for k, v in p.items() if not str(k).startswith("_")}
+        
+        if "address" not in cleaned and "port" not in cleaned and "outbounds" in cleaned:
+            outbounds = cleaned.get("outbounds")
+            if isinstance(outbounds, list) and len(outbounds) > 0:
+                first_outbound = outbounds[0]
+                if isinstance(first_outbound, dict):
+                    settings = first_outbound.get("settings")
+                    if isinstance(settings, dict):
+                        addr = settings.get("address")
+                        port = settings.get("port")
+                        if not addr and "vnext" in settings:
+                            vnext = settings["vnext"]
+                            if isinstance(vnext, list) and len(vnext) > 0 and isinstance(vnext[0], dict):
+                                addr = vnext[0].get("address")
+                                port = vnext[0].get("port")
+                        if addr and port:
+                            cleaned["address"] = addr
+                            cleaned["add"] = addr
+                            cleaned["port"] = port
+        return cleaned
     
     cleaned_output = [_clean(p) for p in output]
 
