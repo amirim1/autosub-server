@@ -5,12 +5,22 @@ APP_DIR=/opt/autosub-server
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE:-$0}")" 2>/dev/null && pwd || echo "")"
 
 if [ -z "$SRC_DIR" ] || [ ! -f "$SRC_DIR/autosub_server.py" ]; then
-  echo "Fetching AutoSub Server source files from GitHub..."
   TMP_DIR="$(mktemp -d)"
+  TARGET_VER="${AUTOSUB_VERSION:-latest}"
+  if [ "$TARGET_VER" = "latest" ]; then
+    LATEST_TAG=$(curl -fsSL https://api.github.com/repos/amirim1/autosub-server/releases/latest 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
+    if [ -n "$LATEST_TAG" ]; then
+      TARGET_VER="$LATEST_TAG"
+    else
+      TARGET_VER="main"
+    fi
+  fi
+  echo "Fetching AutoSub Server version: $TARGET_VER from GitHub..."
   if command -v git &>/dev/null; then
-    git clone --depth 1 https://github.com/amirim1/autosub-server.git "$TMP_DIR"
+    git clone --depth 1 --branch "$TARGET_VER" https://github.com/amirim1/autosub-server.git "$TMP_DIR" 2>/dev/null || git clone --depth 1 https://github.com/amirim1/autosub-server.git "$TMP_DIR"
   else
-    curl -fsSL "https://github.com/amirim1/autosub-server/archive/refs/heads/main.tar.gz?t=$(date +%s)" | tar -xz -C "$TMP_DIR" --strip-components=1
+    curl -fsSL "https://github.com/amirim1/autosub-server/archive/refs/tags/${TARGET_VER}.tar.gz?t=$(date +%s)" 2>/dev/null | tar -xz -C "$TMP_DIR" --strip-components=1 2>/dev/null || \
+    curl -fsSL "https://github.com/amirim1/autosub-server/archive/refs/heads/${TARGET_VER}.tar.gz?t=$(date +%s)" | tar -xz -C "$TMP_DIR" --strip-components=1
   fi
   SRC_DIR="$TMP_DIR"
 fi
@@ -50,10 +60,13 @@ if [ ! -d "$APP_DIR/venv" ]; then
 fi
 "$APP_DIR/venv/bin/pip" install -r "$APP_DIR/requirements.txt"
 
-# Copy static assets
-mkdir -p "$APP_DIR/static"
+# Copy static assets and templates
+mkdir -p "$APP_DIR/static" "$APP_DIR/templates"
 if [ -d "$SRC_DIR/static" ]; then
   cp -r "$SRC_DIR/static/"* "$APP_DIR/static/" 2>/dev/null || true
+fi
+if [ -d "$SRC_DIR/templates" ]; then
+  cp -r "$SRC_DIR/templates/"* "$APP_DIR/templates/" 2>/dev/null || true
 fi
 
 if [ ! -f "$APP_DIR/.env" ]; then

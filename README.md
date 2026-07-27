@@ -57,12 +57,14 @@ AutoSub перехватывает и передает клиентам важн
 
 ## 🚀 Быстрый старт
 
-### Установка в одну команду (curl)
-
-Для автоматической установки сервера и создания системного службы `systemd`:
-
+**Стабильный релиз (Рекомендуется):**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/install.sh | bash
+```
+
+**Ветка разработки (Dev):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/dev/install.sh | AUTOSUB_VERSION=dev bash
 ```
 
 ### Ручная установка
