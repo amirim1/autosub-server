@@ -70,7 +70,7 @@ async def lifespan(app: FastAPI):
             logger.info("config.json migrated to SQLite")
     else:
         logger.warning(f"config.json not found at {CONFIG_PATH}, starting fresh")
-    logger.info(f"AutoSub v3 started")
+    logger.info("AutoSub Server started")
     logger.info(f"DB: {DB_PATH}")
     admin_password = env_get("AUTOSUB_ADMIN_PASSWORD", "")
     if admin_password:
@@ -81,7 +81,7 @@ async def lifespan(app: FastAPI):
     yield
     
     await storage.close()
-    logger.info("AutoSub v3 stopped")
+    logger.info("AutoSub Server stopped")
 
 
 app = FastAPI(lifespan=lifespan)
@@ -94,7 +94,7 @@ if static_dir.exists():
 @app.get("/")
 @app.get("/health")
 async def health():
-    return PlainTextResponse("AutoSub v3 OK")
+    return PlainTextResponse("AutoSub Server OK")
 
 
 # Rate limiting store (in-memory)

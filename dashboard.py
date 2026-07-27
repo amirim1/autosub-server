@@ -229,8 +229,8 @@ async def render_admin(storage, message="", csrf_token=""):
 
     msg = f"<div class='card ok'>{esc(message)}</div>" if message else ""
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AutoSub v3 Dashboard</title>{page_head()}</head><body><div class="shell">
-<div class="top"><div><h1>AutoSub v3 Dashboard</h1><p>Локальная панель управления JSON-подписками и автовыборами.</p></div><a class="btn secondary" href="/health">health</a></div>
+<title>AutoSub Dashboard</title>{page_head()}</head><body><div class="shell">
+<div class="top"><div><h1>AutoSub Dashboard</h1><p>Локальная панель управления JSON-подписками и автовыборами.</p></div><a class="btn secondary" href="/health">health</a></div>
 {msg}
 <div class="grid">
 <div class="card"><h2>Discovery нод</h2><form method="post" action="/admin/discover">

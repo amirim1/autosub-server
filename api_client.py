@@ -24,7 +24,7 @@ async def fetch_original_subscription(sub_id, query=""):
         
     verify = env_get("XUI_TLS_VERIFY", "true").lower() not in ("0", "false", "no", "off")
     async with httpx.AsyncClient(verify=verify, timeout=25.0) as client:
-        resp = await client.get(url, headers={"User-Agent": "AutoSub/3.0"})
+        resp = await client.get(url, headers={"User-Agent": "AutoSub/1.0"})
         resp.raise_for_status()
         ctype = resp.headers.get("Content-Type", "application/octet-stream")
         return resp.text, ctype, resp.headers
@@ -113,7 +113,7 @@ class XuiApi:
             if self.cookie_header:
                 return # Already logged in by another concurrent task
                 
-            resp = await self.client.get(self.base, headers={"User-Agent": "AutoSub/3.0"})
+            resp = await self.client.get(self.base, headers={"User-Agent": "AutoSub/1.0"})
             resp.raise_for_status()
             
             token_match = re.search(
@@ -127,7 +127,7 @@ class XuiApi:
             
             url = join_url(self.base, "/login")
             login_headers = {
-                "User-Agent": "AutoSub/3.0",
+                "User-Agent": "AutoSub/1.0",
                 "X-Requested-With": "XMLHttpRequest",
                 "Referer": self.base.rstrip("/") + "/",
             }
@@ -158,7 +158,7 @@ class XuiApi:
         headers = {
             "X-Requested-With": "XMLHttpRequest",
             "Referer": self.base.rstrip("/") + "/",
-            "User-Agent": "AutoSub/3.0",
+            "User-Agent": "AutoSub/1.0",
         }
         if self.api_token:
             headers["Authorization"] = f"Bearer {self.api_token}"
