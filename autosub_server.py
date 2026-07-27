@@ -2,7 +2,9 @@
 import base64
 import os
 import secrets
+import time
 import traceback
+from collections import defaultdict
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response, Depends, Form, HTTPException, status
@@ -95,8 +97,42 @@ async def health():
     return PlainTextResponse("AutoSub v3 OK")
 
 
+# Rate limiting store (in-memory)
+_ip_requests = defaultdict(list)
+RATE_LIMIT_WINDOW = 60  # seconds
+RATE_LIMIT_MAX_REQUESTS = 30  # max requests per window
+
+
+def _check_rate_limit(ip: str) -> bool:
+    if not ip:
+        return True
+    now = time.time()
+    # Remove timestamps older than window
+    _ip_requests[ip] = [t for t in _ip_requests[ip] if now - t < RATE_LIMIT_WINDOW]
+    if len(_ip_requests[ip]) >= RATE_LIMIT_MAX_REQUESTS:
+        return False
+    _ip_requests[ip].append(now)
+    return True
+
+
 @app.get("/json/{sub_id}")
 async def handle_json_route(sub_id: str, request: Request):
+    # Extract client IP (handle Nginx reverse proxy headers)
+    client_ip = (
+        request.headers.get("X-Real-IP")
+        or request.headers.get("X-Forwarded-For")
+        or (request.client.host if request.client else "")
+    )
+    if client_ip:
+        client_ip = client_ip.split(",")[0].strip()
+
+    if not _check_rate_limit(client_ip):
+        logger.warning(f"Rate limit exceeded for IP: {client_ip} on sub_id: {sub_id}")
+        return JSONResponse(
+            status_code=429,
+            content={"error": "Too Many Requests", "detail": "Rate limit exceeded. Please try again later."},
+        )
+
     try:
         query = request.url.query
         output, ctype, sub_headers = await build_for_subscription(sub_id, storage, query=query)
