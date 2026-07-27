@@ -5,3 +5,5 @@ httpx
 python-multipart
 jinja2
 aiosqlite
+pytest
+pytest-asyncio

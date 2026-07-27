@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>AutoSub Dashboard</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <script src="/static/dashboard.js"></script>
+</head>
+<body>
+<div class="shell">
+    <div class="top">
+        <div>
+            <h1>AutoSub Dashboard</h1>
+            <p>Локальная панель управления JSON-подписками и автовыборами.</p>
+        </div>
+        <a class="btn secondary" href="/health">health</a>
+    </div>
+    {% if message %}
+    <div class="card ok">{{ message }}</div>
+    {% endif %}
+
+    <div class="grid">
+        <div class="card">
+            <h2>Discovery нод</h2>
+            <form method="post" action="/admin/discover">
+                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                <label>ID подписки, где видны нужные ноды</label>
+                <input type="text" name="sub_id" placeholder="idподписки">
+                <p class="muted">AutoSub возьмет оригинальный JSON с локального 3x-ui и построит каталог нод для выбора.</p>
+                <button type="submit">Обновить каталог</button>
+            </form>
+        </div>
+        <div class="card">
+            <h2>Preview клиента</h2>
+            <form method="get" action="/admin/preview">
+                <label>ID подписки клиента</label>
+                <input type="text" name="sub_id" placeholder="idподписки">
+                <p class="muted">Покажет email, группы и какие автовыборы будут добавлены.</p>
+                <button type="submit">Показать preview</button>
+            </form>
+        </div>
+    </div>
+
+    <form method="post" action="/admin/save">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <div class="grid">
+            <div class="card">
+                <h2>Права групп</h2>
+                <label>Формат: group=autoselect_id,autoselect_id</label>
+                <textarea name="group_rules">{{ rules_text }}</textarea>
+                <p class="muted">Пример: clients=stable и admins=stable,all.</p>
+            </div>
+            <div class="card">
+                <h2>Ручные группы клиента (override)</h2>
+                <label>Формат: email или subId = группы</label>
+                <textarea name="client_group_overrides">{{ overrides_text }}</textarea>
+                <p class="muted">Это запасной вариант, если API 3x-ui не отдает группы.</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Probe настройки</h2>
+            <div class="grid">
+                <div>
+                    <label>Probe URL</label>
+                    <input type="text" name="probe_url" value="{{ probe_url }}">
+                </div>
+                <div>
+                    <label>Probe interval</label>
+                    <input type="text" name="probe_interval" value="{{ probe_interval }}">
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Автовыборы</h2>
+            <p class="muted">Порядок выдачи равен порядку ниже. Оригинальные ноды всегда остаются после них.</p>
+        </div>
+
+        {% for auto in autos %}
+        <div class="card">
+            <h3>{{ auto.name }}</h3>
+            <p class="muted">ID: {{ auto.id }} &middot; стратегия: наименьшая задержка &middot; выбрано: {% if auto.tag_filter_count %}{{ auto.tag_filter_count }}{% else %}все{% endif %}</p>
+            <div class="toolbar">
+                <label class="check">
+                    <input type="checkbox" name="mode_{{ auto.id }}" value="*" {% if not auto.tag_filter_count %}checked{% endif %}> Все ноды пользователя
+                </label>
+                <button class="mini" type="button" onclick="setTagChecks('{{ auto.id }}',true)">Выбрать все из каталога</button>
+                <button class="mini" type="button" onclick="setTagChecks('{{ auto.id }}',false)">Снять все</button>
+            </div>
+            <div class="checks">
+                {% if not catalog %}
+                <p class="muted">Сначала сделай discovery нод.</p>
+                {% else %}
+                {% for n in catalog %}
+                <label class="check">
+                    <input class="tagcheck" data-auto="{{ auto.id }}" type="checkbox" name="tag_{{ auto.id }}" value="{{ n.tag_or_name }}" {% if n.tag_or_name_lower in auto.tag_filter_names %}checked{% endif %}>
+                    <span><b>{{ n.name }}</b><br><span class="muted">{{ n.protocol }} {{ n.address }}:{{ n.port }}</span></span>
+                </label>
+                {% endfor %}
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+
+        <button type="submit">Сохранить настройки</button>
+    </form>
+
+    <div class="card">
+        <h2>Локальные группы клиентов</h2>
+        <p class="muted">Группы, назначенные вручную через эту панель, имеют приоритет над API 3x-ui.</p>
+        <input type="text" id="searchLocalClients" onkeyup="filterTable('searchLocalClients', 'tableLocalClients')" placeholder="Поиск по sub_id, email или группам...">
+        <form method="post" action="/admin/set-client-group" class="toolbar">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <input type="text" name="sub_id" placeholder="sub_id" style="width:200px">
+            <input type="text" name="email" placeholder="email (необяз.)" style="width:200px">
+            <input type="text" name="groups" placeholder="группы через запятую" style="width:250px">
+            <button type="submit">Назначить группы</button>
+        </form>
+        <table id="tableLocalClients">
+            <thead>
+            <tr>
+                <th>Sub ID</th>
+                <th>Email</th>
+                <th>Группы</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for c in local_groups %}
+            <tr>
+                <td>{{ c.sub_id }}</td>
+                <td>{{ c.email }}</td>
+                <td>
+                    {% if c.groups %}
+                    {% for g in c.groups %}<span class="pill">{{ g }}</span>{% endfor %}
+                    {% else %}
+                    <span class="muted">нет</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <form method="post" action="/admin/delete-client-group" style="display:inline">
+                        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                        <input type="hidden" name="sub_id" value="{{ c.sub_id }}">
+                        <button class="mini danger">удалить</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="muted">Локальные группы не заданы</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>Каталог нод</h2>
+        <input type="text" id="searchNodes" onkeyup="filterTable('searchNodes', 'tableNodes')" placeholder="Поиск по ноде, протоколу, адресу...">
+        <table id="tableNodes">
+            <thead>
+            <tr>
+                <th>Нода</th>
+                <th>Протокол</th>
+                <th>Адрес</th>
+                <th>Сеть</th>
+                <th>Security</th>
+                <th>Тэг</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for n in catalog %}
+            <tr>
+                <td><b>{{ n.name }}</b><br><span class="muted">{{ n.fingerprint }}</span></td>
+                <td>{{ n.protocol }}</td>
+                <td>{{ n.address }}:{{ n.port }}</td>
+                <td>{{ n.network }}</td>
+                <td>{{ n.security }}</td>
+                <td>{{ n.tag }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="muted">Каталог пустой. Сделай discovery по подписке, где есть все нужные ноды.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>Клиенты из 3x-ui</h2>
+        <input type="text" id="searchClients" onkeyup="filterTable('searchClients', 'tableClients')" placeholder="Поиск по email, sub_id или inbound...">
+        <table id="tableClients">
+            <thead>
+            <tr>
+                <th>Email</th>
+                <th>Sub ID</th>
+                <th>Группы</th>
+                <th>Inbound</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% if not clients_error and grouped_clients %}
+            {% for c in grouped_clients %}
+            <tr>
+                <td>{{ c.email }}</td>
+                <td>{{ c.sub_id }}</td>
+                <td>
+                    {% if c.groups %}
+                    {% for g in c.groups %}<span class="pill">{{ g }}</span>{% endfor %}
+                    {% else %}
+                    <span class="muted">нет</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if c.inbounds %}
+                    {% for ib in c.inbounds %}<span class="pill" style="background:transparent;border:1px solid #4a5568;color:#a0aec0;">{{ ib }}</span> {% endfor %}
+                    {% else %}
+                    <span class="muted">нет</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            {% else %}
+            <tr><td colspan="4" class="muted">{{ clients_error or 'Клиенты не найдены' }}</td></tr>
+            {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+</body>
+</html>

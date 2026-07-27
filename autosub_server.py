@@ -27,21 +27,34 @@ from dashboard import (
 
 storage = Storage(DB_PATH)
 
-# CSRF token store
-_csrf_tokens = set()
-_CSRF_TOKEN_MAX = 200
+# CSRF token store (token: expiry_time)
+_csrf_tokens = {}
+_CSRF_TOKEN_MAX = 500
+_CSRF_TOKEN_TTL = 3600  # 1 hour
 
 def _generate_csrf_token():
+    now = time.time()
+    # Cleanup expired
+    expired = [k for k, v in _csrf_tokens.items() if v < now]
+    for k in expired:
+        _csrf_tokens.pop(k, None)
+        
     token = secrets.token_hex(24)
     if len(_csrf_tokens) >= _CSRF_TOKEN_MAX:
-        _csrf_tokens.clear()
-    _csrf_tokens.add(token)
+        # If still too large, remove oldest
+        if _csrf_tokens:
+            oldest = min(_csrf_tokens.items(), key=lambda x: x[1])[0]
+            _csrf_tokens.pop(oldest, None)
+            
+    _csrf_tokens[token] = now + _CSRF_TOKEN_TTL
     return token
 
 def _validate_csrf_token(token: str):
+    now = time.time()
     if token in _csrf_tokens:
-        _csrf_tokens.discard(token)
-        return True
+        expiry = _csrf_tokens.pop(token)
+        if expiry >= now:
+            return True
     return False
 
 security = HTTPBasic(auto_error=False)
@@ -101,12 +114,21 @@ async def health():
 _ip_requests = defaultdict(list)
 RATE_LIMIT_WINDOW = 60  # seconds
 RATE_LIMIT_MAX_REQUESTS = 30  # max requests per window
+_last_ip_cleanup = 0
 
 
 def _check_rate_limit(ip: str) -> bool:
     if not ip:
         return True
     now = time.time()
+    
+    global _last_ip_cleanup
+    if now - _last_ip_cleanup > 300:  # Cleanup every 5 mins
+        _last_ip_cleanup = now
+        stale_ips = [k for k, times in _ip_requests.items() if not times or now - times[-1] > RATE_LIMIT_WINDOW]
+        for k in stale_ips:
+            _ip_requests.pop(k, None)
+
     # Remove timestamps older than window
     _ip_requests[ip] = [t for t in _ip_requests[ip] if now - t < RATE_LIMIT_WINDOW]
     if len(_ip_requests[ip]) >= RATE_LIMIT_MAX_REQUESTS:
@@ -153,24 +175,22 @@ async def handle_json_route(sub_id: str, request: Request):
         return Response(content=output.encode("utf-8"), media_type=media_type, headers=headers)
     except Exception as e:
         logger.error(f"Error in JSON route: {e}\n{traceback.format_exc()}")
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        return JSONResponse(status_code=500, content={"error": "Internal server error"})
 
 
 @app.get("/admin", dependencies=[Depends(verify_admin)])
-async def admin_page():
+async def admin_page(request: Request):
     csrf_token = _generate_csrf_token()
-    html_content = await render_admin(storage, csrf_token=csrf_token)
-    return HTMLResponse(content=html_content)
+    return await render_admin(request, storage, csrf_token=csrf_token)
 
 
 @app.get("/admin/preview", dependencies=[Depends(verify_admin)])
-async def admin_preview(sub_id: str = ""):
+async def admin_preview(request: Request, sub_id: str = ""):
     sub_id = sub_id.strip()
     if not sub_id:
         return RedirectResponse(url="/admin", status_code=303)
     try:
-        html_content = await render_preview(storage, sub_id)
-        return HTMLResponse(content=html_content)
+        return await render_preview(request, storage, sub_id)
     except Exception as exc:
         return PlainTextResponse(f"preview failed: {exc}", status_code=500)
 
@@ -219,8 +239,7 @@ async def admin_save(request: Request):
     try:
         await save_admin_form(storage, parsed)
         csrf_token = _generate_csrf_token()
-        html_content = await render_admin(storage, "Настройки сохранены", csrf_token=csrf_token)
-        return HTMLResponse(content=html_content)
+        return await render_admin(request, storage, "Настройки сохранены", csrf_token=csrf_token)
     except Exception as exc:
         return PlainTextResponse(f"save failed: {exc}", status_code=500)
 
@@ -236,8 +255,7 @@ async def admin_discover(request: Request, sub_id: str = Form(""), csrf: str = F
         nodes = await discover_nodes_from_sub_id(sub_id)
         await storage.set_node_catalog(nodes)
         csrf_token = _generate_csrf_token()
-        html_content = await render_admin(storage, f"Каталог обновлен: {len(nodes)} нод", csrf_token=csrf_token)
-        return HTMLResponse(content=html_content)
+        return await render_admin(request, storage, f"Каталог обновлен: {len(nodes)} нод", csrf_token=csrf_token)
     except Exception as exc:
         return PlainTextResponse(f"discovery failed: {exc}", status_code=500)
 

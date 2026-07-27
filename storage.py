@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timezone
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 SCHEMA_SQL = """
@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS client_groups (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_client_groups_sub_id ON client_groups(sub_id);
+CREATE INDEX IF NOT EXISTS idx_client_groups_email ON client_groups(email);
 
 CREATE TABLE IF NOT EXISTS node_catalog (
     fingerprint TEXT PRIMARY KEY,
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS node_catalog (
     tag TEXT NOT NULL DEFAULT '',
     first_seen TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE INDEX IF NOT EXISTS idx_node_catalog_name ON node_catalog(name);
 
 CREATE TABLE IF NOT EXISTS group_rules (
     group_name TEXT NOT NULL,
@@ -107,6 +109,12 @@ class Storage:
                     await self.conn.execute("ALTER TABLE autoselects ADD COLUMN tag_filter TEXT NOT NULL DEFAULT '[]'")
                 except Exception:
                     pass
+            if from_version < 4:
+                try:
+                    await self.conn.execute("CREATE INDEX IF NOT EXISTS idx_client_groups_email ON client_groups(email)")
+                    await self.conn.execute("CREATE INDEX IF NOT EXISTS idx_node_catalog_name ON node_catalog(name)")
+                except Exception:
+                    pass
             await self.conn.commit()
 
     async def close(self):
@@ -135,59 +143,64 @@ class Storage:
             return False
 
         async with self._lock:
-            for auto in cfg.get("autoselects", []):
-                await self.conn.execute(
-                    "INSERT OR REPLACE INTO autoselects (id, name, strategy, selected_node_ids, tag_filter, enabled) VALUES (?, ?, ?, ?, ?, ?)",
-                    (
-                        auto.get("id", ""),
-                        auto.get("name", ""),
-                        auto.get("strategy", "leastPing"),
-                        json.dumps(auto.get("selected_node_ids", []), ensure_ascii=False),
-                        json.dumps(auto.get("tag_filter", []), ensure_ascii=False),
-                        1 if auto.get("enabled", True) else 0,
-                    ),
-                )
-
-            for group_name, autoselect_ids in (cfg.get("group_rules") or {}).items():
-                for as_id in autoselect_ids:
+            try:
+                await self.conn.execute("BEGIN TRANSACTION")
+                for auto in cfg.get("autoselects", []):
                     await self.conn.execute(
-                        "INSERT OR IGNORE INTO group_rules (group_name, autoselect_id) VALUES (?, ?)",
-                        (str(group_name), str(as_id)),
+                        "INSERT OR REPLACE INTO autoselects (id, name, strategy, selected_node_ids, tag_filter, enabled) VALUES (?, ?, ?, ?, ?, ?)",
+                        (
+                            auto.get("id", ""),
+                            auto.get("name", ""),
+                            auto.get("strategy", "leastPing"),
+                            json.dumps(auto.get("selected_node_ids", []), ensure_ascii=False),
+                            json.dumps(auto.get("tag_filter", []), ensure_ascii=False),
+                            1 if auto.get("enabled", True) else 0,
+                        ),
                     )
-
-            for node in cfg.get("node_catalog", []):
-                fp = node.get("id") or node.get("fingerprint") or ""
-                if not fp:
-                    continue
-                cid = node.get("canonical_id") or node.get("canonicalId") or ""
+    
+                for group_name, autoselect_ids in (cfg.get("group_rules") or {}).items():
+                    for as_id in autoselect_ids:
+                        await self.conn.execute(
+                            "INSERT OR IGNORE INTO group_rules (group_name, autoselect_id) VALUES (?, ?)",
+                            (str(group_name), str(as_id)),
+                        )
+    
+                for node in cfg.get("node_catalog", []):
+                    fp = node.get("id") or node.get("fingerprint") or ""
+                    if not fp:
+                        continue
+                    cid = node.get("canonical_id") or node.get("canonicalId") or ""
+                    await self.conn.execute(
+                        "INSERT OR REPLACE INTO node_catalog (fingerprint, canonical_id, name, protocol, address, port, network, security, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            fp,
+                            cid,
+                            node.get("name", ""),
+                            node.get("protocol", ""),
+                            node.get("address", ""),
+                            str(node.get("port", "") or ""),
+                            node.get("network", ""),
+                            node.get("security", ""),
+                            node.get("tag", ""),
+                        ),
+                    )
+    
+                for key, groups in (cfg.get("client_group_overrides") or {}).items():
+                    if isinstance(groups, list):
+                        groups = ",".join(groups)
+                    await self.conn.execute(
+                        "INSERT OR REPLACE INTO client_group_overrides (key, groups) VALUES (?, ?)",
+                        (str(key), str(groups)),
+                    )
+    
                 await self.conn.execute(
-                    "INSERT OR REPLACE INTO node_catalog (fingerprint, canonical_id, name, protocol, address, port, network, security, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        fp,
-                        cid,
-                        node.get("name", ""),
-                        node.get("protocol", ""),
-                        node.get("address", ""),
-                        str(node.get("port", "") or ""),
-                        node.get("network", ""),
-                        node.get("security", ""),
-                        node.get("tag", ""),
-                    ),
+                    "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                    ("config_migrated", "1"),
                 )
-
-            for key, groups in (cfg.get("client_group_overrides") or {}).items():
-                if isinstance(groups, list):
-                    groups = ",".join(groups)
-                await self.conn.execute(
-                    "INSERT OR REPLACE INTO client_group_overrides (key, groups) VALUES (?, ?)",
-                    (str(key), str(groups)),
-                )
-
-            await self.conn.execute(
-                "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
-                ("config_migrated", "1"),
-            )
-            await self.conn.commit()
+                await self.conn.commit()
+            except Exception:
+                await self.conn.rollback()
+                raise
         return True
 
     # --- Client Groups ---
@@ -241,25 +254,30 @@ class Storage:
 
     async def set_node_catalog(self, nodes):
         async with self._lock:
-            await self.conn.execute("DELETE FROM node_catalog")
-            for node in nodes:
-                fp = node.get("fingerprint") or node.get("id") or ""
-                cid = node.get("canonical_id") or ""
-                await self.conn.execute(
-                    "INSERT INTO node_catalog (fingerprint, canonical_id, name, protocol, address, port, network, security, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        fp,
-                        cid,
-                        node.get("name", ""),
-                        node.get("protocol", ""),
-                        node.get("address", ""),
-                        str(node.get("port", "") or ""),
-                        node.get("network", ""),
-                        node.get("security", ""),
-                        node.get("tag", ""),
-                    ),
-                )
-            await self.conn.commit()
+            try:
+                await self.conn.execute("BEGIN TRANSACTION")
+                await self.conn.execute("DELETE FROM node_catalog")
+                for node in nodes:
+                    fp = node.get("fingerprint") or node.get("id") or ""
+                    cid = node.get("canonical_id") or ""
+                    await self.conn.execute(
+                        "INSERT INTO node_catalog (fingerprint, canonical_id, name, protocol, address, port, network, security, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            fp,
+                            cid,
+                            node.get("name", ""),
+                            node.get("protocol", ""),
+                            node.get("address", ""),
+                            str(node.get("port", "") or ""),
+                            node.get("network", ""),
+                            node.get("security", ""),
+                            node.get("tag", ""),
+                        ),
+                    )
+                await self.conn.commit()
+            except Exception:
+                await self.conn.rollback()
+                raise
 
     # --- Autoselects ---
 

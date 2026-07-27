@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>AutoSub Preview</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <script src="/static/dashboard.js"></script>
+</head>
+<body>
+<div class="shell">
+    <p><a href="/admin">назад</a></p>
+    <div class="card">
+        <h1>Preview</h1>
+        <p>ID: <b>{{ sub_id }}</b></p>
+        <p>Email: <b>{{ client.email if client else 'не найден' }}</b></p>
+        <p>Группы: {% if groups %}{% for g in groups %}<span class="pill">{{ g }}</span>{% endfor %}{% else %}<span class="muted">нет</span>{% endif %}</p>
+        <p>Источник: <b>{{ client.source if client else 'неизвестно' }}</b></p>
+    </div>
+    <div class="card">
+        <h2>Будет добавлено</h2>
+        <table>
+            <thead>
+            <tr>
+                <th>Автовыбор</th>
+                <th>Нод</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for auto in autos %}
+            {% if auto.exists and auto.matched %}
+            <tr>
+                <td>{{ auto.name }}</td>
+                <td>{{ auto.matched }}</td>
+            </tr>
+            {% endif %}
+            {% else %}
+            <tr><td colspan="2" class="muted">Автовыборы не будут добавлены</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="card">
+        <h2>Оригинальные ноды клиента</h2>
+        <table>
+            <thead>
+            <tr>
+                <th>Нода</th>
+                <th>ID (profile)</th>
+                <th>ID (canonical)</th>
+                <th>Тэг (originNodeGuid)</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for n in enriched %}
+            <tr>
+                <td>{{ n.name }}</td>
+                <td>{{ n.profile_id }}</td>
+                <td>{{ n.canonical_id }}</td>
+                <td>{{ n.tag }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+</body>
+</html>
