@@ -43,6 +43,16 @@ http://127.0.0.1:25500/json/SUB_ID
 JSON URI обратного прокси = https://sub.your-domain.com:2097/json/
 ```
 
+### Проксирование HTTP заголовков
+AutoSub перехватывает и передает клиентам важные заголовки от 3x-ui:
+- `Announce`: Текст объявления, отображаемый в шапке клиента (например, v2rayNG, Happ).
+- `Hide-Settings`, `Routing`, `Routing-Enable`: Настройки скрытия профиля и правила маршрутизации.
+
+### Особенности пинга (Ping Test)
+Формат Xray JSON-подписок (который генерирует AutoSub) описывает ноды как **Custom Configuration** в большинстве клиентов (Happ, v2rayNG).
+- ❌ **TCP Ping**: Может не работать для JSON-конфигураций (особенно VLESS Reality), так как клиенты не извлекают IP/порт для "глупого" TCP-коннекта, а Reality сбрасывает пустые TCP-рукопожатия для защиты от цензоров.
+- ✅ **HTTP GET / Real Ping / via proxy get**: Обязательно используйте этот тип теста в настройках вашего клиента. Он полноценно запускает ядро (Sing-box/Xray), устанавливает защищенное соединение и делает реальный HTTP-запрос, честно измеряя задержку.
+
 ---
 
 ## 🚀 Быстрый старт
@@ -57,14 +67,25 @@ curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/install
 
 ### Ручная установка
 
-```bash
-apt update
-apt install -y python3 nginx git
+Требуется сервер на Ubuntu/Debian.
 
-git clone https://github.com/amirim1/autosub-server.git /opt/autosub-server
-cd /opt/autosub-server
-bash install.sh
-```
+1. **Установка системных пакетов:**
+   ```bash
+   apt update
+   apt install -y python3 python3-pip python3-venv nginx git curl
+   ```
+
+2. **Клонирование репозитория:**
+   ```bash
+   git clone https://github.com/amirim1/autosub-server.git /opt/autosub-server
+   cd /opt/autosub-server
+   ```
+
+3. **Запуск скрипта установки:**
+   Этот скрипт создаст виртуальное окружение, установит Python-зависимости (Aiohttp и др.) и настроит системный сервис `systemd`.
+   ```bash
+   bash install.sh
+   ```
 
 ---
 
