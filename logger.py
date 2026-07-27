@@ -5,7 +5,11 @@ from pathlib import Path
 import os
 
 # Define log path directly to avoid circular dependency with config.py
-APP_DIR = Path(os.environ.get("AUTOSUB_APP_DIR", "/opt/autosub-server"))
+DEFAULT_APP_DIR = Path("/opt/autosub-server")
+if not DEFAULT_APP_DIR.exists():
+    DEFAULT_APP_DIR = Path(__file__).parent.resolve()
+
+APP_DIR = Path(os.environ.get("AUTOSUB_APP_DIR", str(DEFAULT_APP_DIR)))
 LOG_PATH = Path(os.environ.get("AUTOSUB_LOG", str(APP_DIR / "autosub.log")))
 
 LOG_MAX_BYTES = 5 * 1024 * 1024  # 5 MB

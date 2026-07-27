@@ -2,6 +2,7 @@ import html
 import json
 import re
 import urllib.parse
+from pathlib import Path
 
 from api_client import get_xui_api, extract_client_groups, fetch_original_subscription, normalize_subscription
 from builder import (
@@ -14,7 +15,11 @@ from fingerprint import node_name, profile_node_id, node_summary
 from fastapi.templating import Jinja2Templates
 from config import APP_DIR
 
-templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
+templates_dir = APP_DIR / "templates"
+if not templates_dir.exists():
+    templates_dir = Path(__file__).parent.resolve() / "templates"
+
+templates = Jinja2Templates(directory=str(templates_dir))
 
 
 # --- Helpers ---
@@ -208,7 +213,7 @@ async def render_admin(request, storage, message="", csrf_token=""):
         "autos": autoselects,
         "clients_error": clients_error
     }
-    return templates.TemplateResponse("admin.html", context)
+    return templates.TemplateResponse(request=request, name="admin.html", context=context)
 
 
 async def render_preview(request, storage, sub_id):
@@ -234,7 +239,7 @@ async def render_preview(request, storage, sub_id):
         "autos": data["autos"],
         "enriched": enriched_for_template,
     }
-    return templates.TemplateResponse("preview.html", context)
+    return templates.TemplateResponse(request=request, name="preview.html", context=context)
 
 
 async def render_api_test():

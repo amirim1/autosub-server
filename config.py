@@ -3,7 +3,11 @@ from pathlib import Path
 from logger import logger
 
 
-APP_DIR = Path(os.environ.get("AUTOSUB_APP_DIR", "/opt/autosub-server"))
+DEFAULT_APP_DIR = Path("/opt/autosub-server")
+if not DEFAULT_APP_DIR.exists():
+    DEFAULT_APP_DIR = Path(__file__).parent.resolve()
+
+APP_DIR = Path(os.environ.get("AUTOSUB_APP_DIR", str(DEFAULT_APP_DIR)))
 CONFIG_PATH = Path(os.environ.get("AUTOSUB_CONFIG", str(APP_DIR / "config.json")))
 DB_PATH = Path(os.environ.get("AUTOSUB_DB", str(APP_DIR / "data.db")))
 ENV_PATHS = [
