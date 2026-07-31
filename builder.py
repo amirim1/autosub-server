@@ -49,12 +49,26 @@ def build_autoselect_profile(template_profile, selected_profiles, autoselect, pr
     for key in ("remarks", "remark", "ps", "name"):
         result[key] = name
 
+    result["dns"] = {
+        "servers": [
+            "1.1.1.1",
+            "8.8.8.8",
+            "https://dns.google/dns-query",
+            "localhost",
+        ]
+    }
     result["inbounds"] = [
         {
             "listen": "127.0.0.1",
             "port": 10808,
             "protocol": "socks",
-            "settings": {"auth": "noauth"},
+            "settings": {"auth": "noauth", "udp": True},
+            "sniffing": {
+                "destOverride": ["http", "tls", "quic"],
+                "enabled": True,
+                "metadataOnly": False,
+            },
+            "tag": "socks",
         }
     ]
     result["outbounds"] = selected_outbounds + [_direct_outbound(), _block_outbound()]
@@ -68,6 +82,7 @@ def build_autoselect_profile(template_profile, selected_profiles, autoselect, pr
         "domainMatcher": "hybrid",
         "domainStrategy": "IPIfNonMatch",
         "rules": [
+            {"type": "field", "port": "53", "network": "udp", "balancerTag": name},
             {"type": "field", "protocol": ["bittorrent"], "outboundTag": "block"},
             {"type": "field", "network": "tcp,udp", "balancerTag": name},
         ],
@@ -80,8 +95,8 @@ def build_autoselect_profile(template_profile, selected_profiles, autoselect, pr
                     "type": "leastPing",
                     "settings": {
                         "expected": 1,
-                        "maxRTT": "2500ms",
-                        "tolerance": 0.2,
+                        "maxRTT": "10000ms",
+                        "tolerance": 0.3,
                     },
                 },
             }
