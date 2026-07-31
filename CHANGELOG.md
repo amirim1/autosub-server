@@ -2,6 +2,13 @@
 
 All notable changes to AutoSub Server will be documented in this file.
 
+## [v1.3.3] - 2026-07-31
+
+### Fixed
+- **Happ Content-Type Fix**: Restored `application/json; charset=utf-8` response header for Happ subscription requests while maintaining `Happ-Encrypt` and `Hide-Settings` security flags, resolving the "unknown content type" error in Happ.
+
+---
+
 ## [v1.3.2] - 2026-07-31
 
 ### Added
