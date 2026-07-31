@@ -15,9 +15,9 @@ if [ -z "$SRC_DIR" ] || [ ! -f "$SRC_DIR/autosub_server.py" ]; then
       TARGET_VER="main"
     fi
   fi
-  echo "Fetching AutoSub Server version: $TARGET_VER from GitHub..."
+  echo -e "⏳ Fetching AutoSub Server version: \033[1;36m$TARGET_VER\033[0m from GitHub..."
   if command -v git &>/dev/null; then
-    git clone --depth 1 --branch "$TARGET_VER" https://github.com/amirim1/autosub-server.git "$TMP_DIR" 2>/dev/null || git clone --depth 1 https://github.com/amirim1/autosub-server.git "$TMP_DIR"
+    git clone -q --depth 1 --branch "$TARGET_VER" https://github.com/amirim1/autosub-server.git "$TMP_DIR" 2>/dev/null || git clone -q --depth 1 https://github.com/amirim1/autosub-server.git "$TMP_DIR" 2>/dev/null
   else
     curl -fsSL "https://github.com/amirim1/autosub-server/archive/refs/tags/${TARGET_VER}.tar.gz?t=$(date +%s)" 2>/dev/null | tar -xz -C "$TMP_DIR" --strip-components=1 2>/dev/null || \
     curl -fsSL "https://github.com/amirim1/autosub-server/archive/refs/heads/${TARGET_VER}.tar.gz?t=$(date +%s)" | tar -xz -C "$TMP_DIR" --strip-components=1
@@ -50,7 +50,7 @@ install_file "$SRC_DIR/finish_setup.sh" "$APP_DIR/finish_setup.sh"
 install_file "$SRC_DIR/requirements.txt" "$APP_DIR/requirements.txt"
 
 # Install python dependencies
-echo "Setting up Python virtual environment..."
+echo -e "📦 Setting up Python virtual environment..."
 if [ ! -d "$APP_DIR/venv" ]; then
   if ! python3 -c "import venv" &>/dev/null; then
     echo "Installing python3-venv package..."
@@ -58,7 +58,7 @@ if [ ! -d "$APP_DIR/venv" ]; then
   fi
   python3 -m venv "$APP_DIR/venv"
 fi
-"$APP_DIR/venv/bin/pip" install -r "$APP_DIR/requirements.txt"
+"$APP_DIR/venv/bin/pip" install -q -r "$APP_DIR/requirements.txt"
 
 # Copy static assets and templates
 mkdir -p "$APP_DIR/static" "$APP_DIR/templates"
@@ -103,7 +103,7 @@ systemctl daemon-reload
 systemctl enable autosub-server
 systemctl restart autosub-server
 
-echo "Installed AutoSub."
+echo -e "✅ \033[1;32mInstalled AutoSub successfully!\033[0m"
 echo "Edit secrets: nano $APP_DIR/.env"
 echo "Restart: systemctl restart autosub-server"
 echo "Dashboard tunnel: ssh -L 25500:127.0.0.1:25500 root@SERVER"

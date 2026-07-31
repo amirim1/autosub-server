@@ -2,6 +2,15 @@
 
 All notable changes to AutoSub Server will be documented in this file.
 
+## [v2.0.0] - 2026-07-31
+
+### Added
+- **Major Release: AutoSub Server 2.0**: Consolidated all recent features including the new Glassmorphism UI, intelligent `leastLoad` balancer strategy, expanded RU Bypass routing, selective `Hide-Settings`, and legacy `/sub/` compatibility into a new stable major version.
+- **Improved Installation Scripts**: Made `install.sh` and `update.sh` outputs cleaner by silencing verbose dependency logs and adding aesthetic emojis/colors to indicate progress clearly.
+- **Detailed Documentation**: Fully updated `README.md` with an extensive step-by-step setup guide and highlighted key features for new users.
+
+---
+
 ## [v1.3.3] - 2026-07-31
 
 ### Added

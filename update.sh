@@ -15,9 +15,9 @@ if [ -z "$SRC_DIR" ] || [ ! -f "$SRC_DIR/autosub_server.py" ]; then
       TARGET_VER="main"
     fi
   fi
-  echo "Fetching latest AutoSub Server updates (version: $TARGET_VER) from GitHub..."
+  echo -e "⏳ Fetching latest AutoSub Server updates (version: \033[1;36m$TARGET_VER\033[0m) from GitHub..."
   if command -v git &>/dev/null; then
-    git clone --depth 1 --branch "$TARGET_VER" https://github.com/amirim1/autosub-server.git "$TMP_DIR" 2>/dev/null || git clone --depth 1 https://github.com/amirim1/autosub-server.git "$TMP_DIR"
+    git clone -q --depth 1 --branch "$TARGET_VER" https://github.com/amirim1/autosub-server.git "$TMP_DIR" 2>/dev/null || git clone -q --depth 1 https://github.com/amirim1/autosub-server.git "$TMP_DIR" 2>/dev/null
   else
     curl -fsSL "https://github.com/amirim1/autosub-server/archive/refs/tags/${TARGET_VER}.tar.gz?t=$(date +%s)" 2>/dev/null | tar -xz -C "$TMP_DIR" --strip-components=1 2>/dev/null || \
     curl -fsSL "https://github.com/amirim1/autosub-server/archive/refs/heads/${TARGET_VER}.tar.gz?t=$(date +%s)" | tar -xz -C "$TMP_DIR" --strip-components=1
@@ -65,7 +65,7 @@ install_file "$SRC_DIR/requirements.txt" "$APP_DIR/requirements.txt"
 cp "$SRC_DIR/autosub-server.service" /etc/systemd/system/autosub-server.service
 
 # Install python dependencies
-echo "Setting up Python virtual environment..."
+echo -e "📦 Setting up Python virtual environment..."
 if [ ! -d "$APP_DIR/venv" ]; then
   if ! python3 -c "import venv" &>/dev/null; then
     echo "Installing python3-venv package..."
@@ -73,7 +73,7 @@ if [ ! -d "$APP_DIR/venv" ]; then
   fi
   python3 -m venv "$APP_DIR/venv"
 fi
-"$APP_DIR/venv/bin/pip" install -r "$APP_DIR/requirements.txt"
+"$APP_DIR/venv/bin/pip" install -q -r "$APP_DIR/requirements.txt"
 
 # Copy static assets and templates
 mkdir -p "$APP_DIR/static" "$APP_DIR/templates"
@@ -116,6 +116,6 @@ grep -q '^AUTOSUB_ADMIN_PASSWORD=' "$APP_DIR/.env" || echo 'AUTOSUB_ADMIN_PASSWO
 systemctl daemon-reload
 systemctl restart autosub-server
 
-echo "AutoSub updated."
+echo -e "✅ \033[1;32mAutoSub updated successfully!\033[0m"
 echo "Backup: $BACKUP_DIR"
 echo "Status: systemctl status autosub-server --no-pager"
