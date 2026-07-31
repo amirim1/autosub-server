@@ -4,23 +4,11 @@ All notable changes to AutoSub Server will be documented in this file.
 
 ## [v1.3.3] - 2026-07-31
 
-### Fixed
-- **Happ Content-Type Fix**: Restored `application/json; charset=utf-8` response header for Happ subscription requests while maintaining `Happ-Encrypt` and `Hide-Settings` security flags, resolving the "unknown content type" error in Happ.
-
----
-
-## [v1.3.2] - 2026-07-31
-
 ### Added
-- **Happ Payload Base64 Subscription Encoding**: Encodes subscription payload into Base64 for Happ requests when `happ_encrypt` or `hide_settings` is enabled. Forces Happ to lock node config cards in Happ UI.
-- **Save Confirmation Banner & UI Clarity**: Added a green save notification banner directly above the save button in the Admin Dashboard and simplified Security Rules placeholders (`*` for all clients).
-
----
-
-## [v1.3.1] - 2026-07-31
-
-### Fixed
-- **In-App Config Locking (`Hide-Settings`)**: Injected `hideSettings: true` and `hide_settings: true` properties directly into JSON profile objects as well as HTTP response headers (`Hide-Settings`, `X-Hide-Settings`), forcing Happ and v2rayNG to completely lock and disable viewing/editing node configurations in the client UI.
+- **Admin Dashboard Glassmorphism UI Overhaul**: Full modern dark glassmorphism redesign of the Admin Dashboard with top metrics cards (Total Nodes, Active Balancers, Manual Clients).
+- **Floating Toast Notifications & Sticky Action Bar**: Added animated top-right toast notifications for all dashboard save/edit actions and a sticky save bar pinned at the bottom of the viewport.
+- **Dedicated All Clients & Server Nodes Views**: Added dedicated interactive cards displaying all synced 3x-ui clients with assigned groups, inbounds, and JSON subscription links, plus a complete server nodes catalog table.
+- **Selective Config Protection & Security Rules**: Full support for `Hide-Settings: true` and `Happ-Encrypt: true` header/payload rules configured per client group.
 
 ---
 
