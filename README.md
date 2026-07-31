@@ -5,7 +5,9 @@
 
 **AutoSub Server** — это локальный прокси-сервер JSON-подписок для панели **3x-ui**.
 
-Он перехватывает запросы `/json/<subId>` с внешнего порта прокси, получает оригинальную JSON-подписку от 3x-ui, генерирует и добавляет разрешенные профили автоматического выбора нод (Autoselect / LeastPing) в начало списка и возвращает оригинальные ноды без изменений после них.
+Он перехватывает запросы `/json/<subId>` и `/sub/<subId>` с внешнего порта прокси, получает оригинальную JSON-подписку от 3x-ui, генерирует и добавляет разрешенные профили автоматического выбора нод (Autoselect / LeastPing) в начало списка и возвращает оригинальные ноды без изменений после них.
+
+Для старых ссылок `/sub/<subId>` сервер автоматически различает запросы: веб-браузерам отображает красивую родную HTML-страницу 3x-ui (со статистикой трафика и кнопками), а VPN-клиентам отдает обновленную JSON-подписку с автовыбором.
 
 > [English documentation is available in [README_EN.md](README_EN.md).]
 
@@ -30,14 +32,15 @@
 
 ```text
 Внешний запрос клиента:
-https://sub.your-domain.com:2097/json/SUB_ID
+https://sub.your-domain.com:2097/json/SUB_ID  (или /sub/SUB_ID)
 
 3x-ui (Оригинальная подписка):
-https://sub.your-domain.com:2096/sub/SUB_ID  (Base64)
+https://sub.your-domain.com:2096/sub/SUB_ID  (Base64 / Web HTML)
 https://sub.your-domain.com:2096/json/SUB_ID (JSON Upstream)
 
 AutoSub Server (Локальный прокси):
 http://127.0.0.1:25500/json/SUB_ID
+http://127.0.0.1:25500/sub/SUB_ID
 
 Настройка в панели 3x-ui:
 JSON URI обратного прокси = https://sub.your-domain.com:2097/json/
@@ -180,8 +183,18 @@ server {
     ssl_certificate /etc/letsencrypt/live/sub.your-domain.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/sub.your-domain.com/privkey.pem;
 
+    # JSON subscriptions
     location /json/ {
         proxy_pass http://127.0.0.1:25500/json/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Legacy Base64 subscription URLs (serves HTML to web browsers, JSON to VPN apps)
+    location /sub/ {
+        proxy_pass http://127.0.0.1:25500/sub/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
