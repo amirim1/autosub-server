@@ -198,6 +198,8 @@ async def build_for_subscription(sub_id, storage, query=""):
     if sub_userinfo_env:
         sub_headers["Subscription-Userinfo"] = sub_userinfo_env
 
+    sec_flags = await resolve_security_flags(sub_id, storage, client)
+
     if not client:
         log(f"{sub_id}: client not found, passthrough original")
         return original_text, content_type, sub_headers
@@ -416,13 +418,12 @@ async def build_for_subscription(sub_id, storage, query=""):
                 ],
             }
 
-        if sec_flags.get("hide_settings"):
+        if sec_flags and sec_flags.get("hide_settings"):
             cleaned["hideSettings"] = True
             cleaned["hide_settings"] = True
 
         return cleaned
 
-    sec_flags = await resolve_security_flags(sub_id, storage, client)
     cleaned_output = [_clean(p) for p in output]
 
     email = client.get("email") or "client"
