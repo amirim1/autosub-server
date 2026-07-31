@@ -281,38 +281,83 @@ async def build_for_subscription(sub_id, storage, query=""):
     output = dummy_nodes + auto_profiles + remaining_profiles
     
     # Clean internal fields and inject address/port/inbounds/outbounds for v2rayNG/Happ ping
-    def _extract_addr_port(obj):
-        if not isinstance(obj, dict):
-            return None, None
-        addr = obj.get("address") or obj.get("add")
-        port = obj.get("port")
-        if addr and port:
-            return addr, port
+    def _normalize_outbound_settings(outbound):
+        if not isinstance(outbound, dict):
+            return outbound
+        protocol = str(outbound.get("protocol", "")).lower()
+        settings = outbound.get("settings")
+        if not isinstance(settings, dict):
+            settings = {}
 
-        settings = obj.get("settings")
-        if isinstance(settings, dict):
-            addr = settings.get("address") or settings.get("add")
-            port = settings.get("port")
-            if addr and port:
-                return addr, port
-            vnext = settings.get("vnext")
-            if isinstance(vnext, list) and vnext and isinstance(vnext[0], dict):
-                addr = vnext[0].get("address") or vnext[0].get("add")
-                port = vnext[0].get("port")
-                if addr and port:
-                    return addr, port
-            servers = settings.get("servers")
-            if isinstance(servers, list) and servers and isinstance(servers[0], dict):
-                addr = servers[0].get("address") or servers[0].get("add")
-                port = servers[0].get("port")
-                if addr and port:
-                    return addr, port
+        if protocol == "vless":
+            if "vnext" not in settings:
+                addr = settings.get("address") or settings.get("add") or ""
+                port = settings.get("port") or 443
+                vuid = settings.get("id") or settings.get("uuid") or ""
+                flow = settings.get("flow") or ""
+                encryption = settings.get("encryption") or "none"
+                level = settings.get("level", 8)
+                if addr and vuid:
+                    user_obj = {
+                        "id": str(vuid),
+                        "encryption": encryption,
+                        "level": level,
+                        "security": "auto",
+                    }
+                    if flow:
+                        user_obj["flow"] = flow
+                    outbound["settings"] = {
+                        "vnext": [
+                            {
+                                "address": str(addr),
+                                "port": int(port) if str(port).isdigit() else port,
+                                "users": [user_obj],
+                            }
+                        ]
+                    }
+        elif protocol == "vmess":
+            if "vnext" not in settings:
+                addr = settings.get("address") or settings.get("add") or ""
+                port = settings.get("port") or 443
+                vuid = settings.get("id") or settings.get("uuid") or ""
+                alter_id = settings.get("alterId", 0)
+                level = settings.get("level", 8)
+                if addr and vuid:
+                    outbound["settings"] = {
+                        "vnext": [
+                            {
+                                "address": str(addr),
+                                "port": int(port) if str(port).isdigit() else port,
+                                "users": [
+                                    {
+                                        "id": str(vuid),
+                                        "alterId": alter_id,
+                                        "security": settings.get("security", "auto"),
+                                        "level": level,
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+        elif protocol == "trojan":
+            if "servers" not in settings:
+                addr = settings.get("address") or settings.get("add") or ""
+                port = settings.get("port") or 443
+                password = settings.get("password") or settings.get("id") or ""
+                level = settings.get("level", 8)
+                if addr and password:
+                    outbound["settings"] = {
+                        "servers": [
+                            {
+                                "address": str(addr),
+                                "port": int(port) if str(port).isdigit() else port,
+                                "password": str(password),
+                                "level": level,
+                            }
+                        ]
+                    }
 
-        outbounds = obj.get("outbounds")
-        if isinstance(outbounds, list) and outbounds and isinstance(outbounds[0], dict):
-            return _extract_addr_port(outbounds[0])
-
-        return None, None
+        return outbound
 
     def _clean(p):
         if not isinstance(p, dict):
@@ -326,15 +371,24 @@ async def build_for_subscription(sub_id, storage, query=""):
             cleaned["ps"] = name_val
             cleaned["tag"] = name_val
 
-        addr, port = _extract_addr_port(cleaned)
-        if addr and port:
-            port_val = int(port) if isinstance(port, (int, str)) and str(port).isdigit() else port
-            cleaned["address"] = str(addr)
-            cleaned["add"] = str(addr)
-            cleaned["port"] = port_val
-            if "settings" in cleaned and isinstance(cleaned["settings"], dict):
-                cleaned["settings"]["address"] = str(addr)
-                cleaned["settings"]["port"] = port_val
+        # If p is a single outbound profile (has protocol at top level)
+        if "protocol" in cleaned and "outbounds" not in cleaned:
+            outbound_single = {
+                "tag": "proxy",
+                "protocol": cleaned["protocol"],
+                "settings": cleaned.get("settings", {}),
+            }
+            if "streamSettings" in cleaned:
+                outbound_single["streamSettings"] = cleaned["streamSettings"]
+
+            outbound_single = _normalize_outbound_settings(outbound_single)
+
+            cleaned["outbounds"] = [outbound_single, _direct_outbound(), _block_outbound()]
+            for key in ("protocol", "settings", "streamSettings", "address", "add", "port"):
+                cleaned.pop(key, None)
+
+        elif "outbounds" in cleaned and isinstance(cleaned["outbounds"], list):
+            cleaned["outbounds"] = [_normalize_outbound_settings(ob) for ob in cleaned["outbounds"]]
 
         if "inbounds" not in cleaned:
             cleaned["inbounds"] = [
@@ -342,19 +396,30 @@ async def build_for_subscription(sub_id, storage, query=""):
                     "listen": "127.0.0.1",
                     "port": 10808,
                     "protocol": "socks",
-                    "settings": {"auth": "noauth"},
+                    "settings": {
+                        "auth": "noauth",
+                        "udp": True,
+                        "userLevel": 8,
+                    },
+                    "sniffing": {
+                        "destOverride": ["http", "tls", "quic"],
+                        "enabled": True,
+                    },
+                    "tag": "socks",
                 }
             ]
 
-        if "outbounds" not in cleaned and "protocol" in cleaned:
-            outbound_single = {
-                "tag": cleaned.get("tag") or "proxy",
-                "protocol": cleaned["protocol"],
-                "settings": cleaned.get("settings", {}),
+        if "routing" not in cleaned:
+            cleaned["routing"] = {
+                "domainStrategy": "IPIfNonMatch",
+                "rules": [
+                    {
+                        "network": "tcp,udp",
+                        "outboundTag": "proxy",
+                        "type": "field",
+                    }
+                ],
             }
-            if "streamSettings" in cleaned:
-                outbound_single["streamSettings"] = cleaned["streamSettings"]
-            cleaned["outbounds"] = [outbound_single, _direct_outbound(), _block_outbound()]
 
         return cleaned
 

@@ -59,15 +59,15 @@ def test_clean_enrichment():
         # We expect autoselect node + regular node
         assert len(nodes) == 2
         for node in nodes:
-            assert node.get("address") == "pl01.amirim.space"
-            assert node.get("add") == "pl01.amirim.space"
-            assert node.get("port") == 45336
             assert "inbounds" in node and len(node["inbounds"]) > 0
             assert "outbounds" in node and len(node["outbounds"]) > 0
             assert node.get("remarks") != ""
             assert node.get("name") != ""
             assert node.get("ps") != ""
-            if "settings" in node and isinstance(node["settings"], dict):
-                assert node["settings"].get("address") == "pl01.amirim.space"
-                assert node["settings"].get("port") == 45336
+            first_outbound = node["outbounds"][0]
+            settings = first_outbound.get("settings", {})
+            assert "vnext" in settings
+            vnext = settings["vnext"][0]
+            assert vnext["address"] == "pl01.amirim.space"
+            assert vnext["port"] == 45336
 
