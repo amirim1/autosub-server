@@ -9,6 +9,8 @@ All notable changes to AutoSub Server will be documented in this file.
 - **Floating Toast Notifications & Sticky Action Bar**: Added animated top-right toast notifications for all dashboard save/edit actions and a sticky save bar pinned at the bottom of the viewport.
 - **Dedicated All Clients & Server Nodes Views**: Added dedicated interactive cards displaying all synced 3x-ui clients with assigned groups, inbounds, and JSON subscription links, plus a complete server nodes catalog table.
 - **Selective Config Protection & Security Rules**: Full support for `Hide-Settings: true` and `Happ-Encrypt: true` header/payload rules configured per client group.
+- **Extended Russian Routing Bypass**: Expanded the `direct` routing rules to include a comprehensive, full reference list of major Russian services and domains (Yandex, VK, Mail.ru, banks, e-commerce, etc.) to optimize connectivity speeds and bypass VPN routing for local resources.
+- **Advanced Load Balancing & Optimization**: Upgraded balancer strategy to `leastLoad` for intelligent traffic distribution across grouped latency baselines, and optimized `burstObservatory` check frequency to reduce mobile battery drain while maintaining fast failover.
 
 ---
 

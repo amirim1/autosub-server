@@ -86,9 +86,9 @@ def build_autoselect_profile(template_profile, selected_profiles, autoselect, pr
     result["outbounds"] = selected_outbounds + [_direct_outbound(), _block_outbound()]
     result["burstObservatory"] = {
         "pingConfig": {
-            "timeout": "3s",
-            "interval": "45s",
-            "sampling": 3,
+            "timeout": "2s",
+            "interval": "15s",
+            "sampling": 2,
             "destination": probe_url,
             "connectivity": "",
         },
@@ -137,7 +137,13 @@ def build_autoselect_profile(template_profile, selected_profiles, autoselect, pr
                 "selector": tags[:],
                 "fallbackTag": tags[0] if tags else "",
                 "strategy": {
-                    "type": "leastPing",
+                    "type": "leastLoad",
+                    "settings": {
+                        "maxRTT": "2500ms",
+                        "expected": 1,
+                        "baselines": ["250ms", "700ms", "1500ms"],
+                        "tolerance": 0.2,
+                    },
                 },
             }
         ],
