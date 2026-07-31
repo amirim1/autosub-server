@@ -272,31 +272,54 @@ async def build_for_subscription(sub_id, storage, query=""):
 
     output = dummy_nodes + auto_profiles + remaining_profiles
     
-    # Clean internal fields and inject address/port for v2rayNG ping
+    # Clean internal fields and inject address/port for v2rayNG/Happ ping
+    def _extract_addr_port(obj):
+        if not isinstance(obj, dict):
+            return None, None
+        addr = obj.get("address") or obj.get("add")
+        port = obj.get("port")
+        if addr and port:
+            return addr, port
+
+        settings = obj.get("settings")
+        if isinstance(settings, dict):
+            addr = settings.get("address") or settings.get("add")
+            port = settings.get("port")
+            if addr and port:
+                return addr, port
+            vnext = settings.get("vnext")
+            if isinstance(vnext, list) and vnext and isinstance(vnext[0], dict):
+                addr = vnext[0].get("address") or vnext[0].get("add")
+                port = vnext[0].get("port")
+                if addr and port:
+                    return addr, port
+            servers = settings.get("servers")
+            if isinstance(servers, list) and servers and isinstance(servers[0], dict):
+                addr = servers[0].get("address") or servers[0].get("add")
+                port = servers[0].get("port")
+                if addr and port:
+                    return addr, port
+
+        outbounds = obj.get("outbounds")
+        if isinstance(outbounds, list) and outbounds and isinstance(outbounds[0], dict):
+            return _extract_addr_port(outbounds[0])
+
+        return None, None
+
     def _clean(p):
-        if not isinstance(p, dict): return p
+        if not isinstance(p, dict):
+            return p
         cleaned = {k: v for k, v in p.items() if not str(k).startswith("_")}
-        
-        if "address" not in cleaned and "port" not in cleaned and "outbounds" in cleaned:
-            outbounds = cleaned.get("outbounds")
-            if isinstance(outbounds, list) and len(outbounds) > 0:
-                first_outbound = outbounds[0]
-                if isinstance(first_outbound, dict):
-                    settings = first_outbound.get("settings")
-                    if isinstance(settings, dict):
-                        addr = settings.get("address")
-                        port = settings.get("port")
-                        if not addr and "vnext" in settings:
-                            vnext = settings["vnext"]
-                            if isinstance(vnext, list) and len(vnext) > 0 and isinstance(vnext[0], dict):
-                                addr = vnext[0].get("address")
-                                port = vnext[0].get("port")
-                        if addr and port:
-                            cleaned["address"] = addr
-                            cleaned["add"] = addr
-                            cleaned["port"] = port
+        addr, port = _extract_addr_port(cleaned)
+        if addr and port:
+            cleaned["address"] = addr
+            cleaned["add"] = addr
+            cleaned["port"] = port
+            if "settings" in cleaned and isinstance(cleaned["settings"], dict):
+                cleaned["settings"]["address"] = addr
+                cleaned["settings"]["port"] = port
         return cleaned
-    
+
     cleaned_output = [_clean(p) for p in output]
 
     email = client.get("email") or "client"

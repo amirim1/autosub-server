@@ -19,3 +19,50 @@ def test_match_profiles():
     # Test all
     matched3 = match_profiles(profiles, ["*"])
     assert len(matched3) == 3
+
+
+def test_clean_enrichment():
+    import json
+    from unittest.mock import AsyncMock, patch
+    from builder import build_for_subscription
+
+    storage_mock = AsyncMock()
+    storage_mock.get_probe_config.return_value = ("http://cp.cloudflare.com/", "10m")
+    storage_mock.get_client_groups.return_value = ["vip"]
+    storage_mock.get_client_email.return_value = "test@example.com"
+    storage_mock.get_group_rules.return_value = {"vip": ["auto"]}
+    storage_mock.get_autoselects.return_value = [
+        {"id": "auto", "name": "Auto", "enabled": True, "selected_node_ids": ["*"]}
+    ]
+
+    raw_sub = json.dumps([
+        {
+            "tag": "PL-Node",
+            "protocol": "vless",
+            "settings": {
+                "vnext": [
+                    {
+                        "address": "pl01.amirim.space",
+                        "port": 45336,
+                        "users": [{"id": "uuid-1"}]
+                    }
+                ]
+            }
+        }
+    ])
+
+    with patch("builder.fetch_original_subscription", new=AsyncMock(return_value=(raw_sub, "application/json", {}))):
+        import asyncio
+        output_text, _, _ = asyncio.run(build_for_subscription("sub123", storage_mock))
+        nodes = json.loads(output_text)
+        
+        # We expect autoselect node + regular node
+        assert len(nodes) == 2
+        for node in nodes:
+            assert node.get("address") == "pl01.amirim.space"
+            assert node.get("add") == "pl01.amirim.space"
+            assert node.get("port") == 45336
+            if "settings" in node and isinstance(node["settings"], dict):
+                assert node["settings"].get("address") == "pl01.amirim.space"
+                assert node["settings"].get("port") == 45336
+
