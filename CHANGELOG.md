@@ -12,6 +12,7 @@ All notable changes to AutoSub Server will be documented in this file.
 
 ### Added
 - **Legacy `/sub/` Route Support**: Added `@app.get("/sub/{sub_id}")` route to support serving AutoSub JSON directly over legacy `/sub/` subscription links without changing client URLs.
+- **Smart Browser Proxying for `/sub/`**: Automatically detects web browser navigation (`Accept: text/html` / User-Agent) on `/sub/` links and serves 3x-ui's native HTML subscription landing page, while serving AutoSub JSON to VPN clients (v2rayNG, Happ, NekoBox, etc.).
 - **Outbound Validation Logging**: Added automatic WARNING log detection when receiving invalid outbounds from upstream panels (`missing vnext / servers`).
 - **Structure Documentation**: Created `docs/structure.md` detailing repository layout, branching model (`dev`/`main`), and release workflow.
 

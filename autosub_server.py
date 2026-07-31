@@ -16,6 +16,7 @@ import uvicorn
 from config import APP_DIR, CONFIG_PATH, DB_PATH, ensure_app_dir, env_get, load_config
 from logger import logger
 from storage import Storage
+from api_client import fetch_original_sub_html
 from builder import build_for_subscription, discover_nodes_from_sub_id
 from dashboard import (
     render_admin,
@@ -155,6 +156,21 @@ async def handle_json_route(sub_id: str, request: Request):
             status_code=429,
             content={"error": "Too Many Requests", "detail": "Rate limit exceeded. Please try again later."},
         )
+
+    # Detect if request is coming from a web browser (e.g., Chrome/Firefox opening /sub/ link)
+    accept_header = request.headers.get("accept", "").lower()
+    user_agent = request.headers.get("user-agent", "").lower()
+    is_browser = "text/html" in accept_header or (
+        "mozilla/" in user_agent
+        and not any(client in user_agent for client in ["v2ray", "happ", "nekobox", "sing-box", "clash", "shadowrocket", "stash", "surge", "foxray", "streisand", "passwall", "openwrt"])
+    )
+
+    if is_browser and request.url.path.startswith("/sub/"):
+        try:
+            html_content, ctype, status_code = await fetch_original_sub_html(sub_id, request.headers)
+            return HTMLResponse(content=html_content, status_code=status_code)
+        except Exception as err:
+            logger.warning(f"Failed to proxy HTML landing page from 3x-ui for sub_id {sub_id}: {err}")
 
     try:
         query = request.url.query

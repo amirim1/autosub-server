@@ -56,6 +56,26 @@ async def fetch_original_subscription(sub_id, query=""):
         return resp.text, ctype, resp.headers
 
 
+async def fetch_original_sub_html(sub_id, request_headers=None):
+    xui_url = env_get("XUI_SUB_URL", env_get("XUI_URL", ""))
+    if not xui_url:
+        raise RuntimeError("XUI_SUB_URL is not configured in .env")
+    path = f"/sub/{urllib.parse.quote(sub_id, safe='')}"
+    url = join_url(xui_url, path)
+    
+    verify = env_get("XUI_TLS_VERIFY", "true").lower() not in ("0", "false", "no", "off")
+    req_headers = {"User-Agent": "Mozilla/5.0"}
+    if request_headers:
+        for k in ("user-agent", "accept-language", "accept"):
+            val = request_headers.get(k)
+            if val:
+                req_headers[k] = val
+
+    async with httpx.AsyncClient(verify=verify, timeout=25.0) as client:
+        resp = await client.get(url, headers=req_headers)
+        return resp.text, resp.headers.get("Content-Type", "text/html; charset=utf-8"), resp.status_code
+
+
 def normalize_subscription(text):
     data = json.loads(text)
     if isinstance(data, list):
