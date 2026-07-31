@@ -473,3 +473,30 @@ async def discover_nodes_from_sub_id(sub_id):
         summary["tag"] = node_name(profile, i)
         result.append(summary)
     return result
+
+
+async def resolve_security_flags(sub_id, storage, client=None):
+    if not client:
+        client = await resolve_client(sub_id, storage)
+    sec_rules = await storage.get_security_rules()
+    hide_groups = sec_rules.get("hide_settings_groups") or ["*"]
+    happ_groups = sec_rules.get("happ_encrypt_groups") or []
+
+    groups = (client or {}).get("groups") or []
+    c_email = (client or {}).get("email") or ""
+
+    def _matches(rule_list):
+        if "*" in rule_list:
+            return True
+        for g in groups:
+            if g in rule_list or g.lower() in [x.lower() for x in rule_list]:
+                return True
+        for ident in (sub_id, c_email):
+            if ident and (ident in rule_list or ident.lower() in [x.lower() for x in rule_list]):
+                return True
+        return False
+
+    return {
+        "hide_settings": _matches(hide_groups),
+        "happ_encrypt": _matches(happ_groups),
+    }

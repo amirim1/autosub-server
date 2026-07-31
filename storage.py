@@ -306,19 +306,67 @@ class Storage:
             })
         return result
 
-    async def update_autoselect(self, autoselect_id, selected_node_ids, tag_filter=None):
+    async def add_autoselect(self, autoselect_id, name, strategy="leastPing", selected_node_ids=None, tag_filter=None, enabled=1):
+        if selected_node_ids is None:
+            selected_node_ids = ["*"]
+        if tag_filter is None:
+            tag_filter = []
         async with self._lock:
-            if tag_filter is not None:
-                await self.conn.execute(
-                    "UPDATE autoselects SET selected_node_ids = ?, tag_filter = ? WHERE id = ?",
-                    (json.dumps(selected_node_ids, ensure_ascii=False), json.dumps(tag_filter, ensure_ascii=False), autoselect_id),
-                )
-            else:
-                await self.conn.execute(
-                    "UPDATE autoselects SET selected_node_ids = ? WHERE id = ?",
-                    (json.dumps(selected_node_ids, ensure_ascii=False), autoselect_id),
-                )
+            await self.conn.execute(
+                "INSERT INTO autoselects (id, name, strategy, selected_node_ids, tag_filter, enabled) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    autoselect_id,
+                    name,
+                    strategy,
+                    json.dumps(selected_node_ids, ensure_ascii=False),
+                    json.dumps(tag_filter, ensure_ascii=False),
+                    1 if enabled else 0,
+                ),
+            )
             await self.conn.commit()
+
+    async def delete_autoselect(self, autoselect_id):
+        async with self._lock:
+            await self.conn.execute("DELETE FROM autoselects WHERE id = ?", (autoselect_id,))
+            await self.conn.execute("DELETE FROM group_rules WHERE autoselect_id = ?", (autoselect_id,))
+            await self.conn.commit()
+
+    async def update_autoselect(self, autoselect_id, selected_node_ids=None, tag_filter=None, name=None, enabled=None):
+        async with self._lock:
+            updates = []
+            params = []
+            if name is not None:
+                updates.append("name = ?")
+                params.append(name)
+            if selected_node_ids is not None:
+                updates.append("selected_node_ids = ?")
+                params.append(json.dumps(selected_node_ids, ensure_ascii=False))
+            if tag_filter is not None:
+                updates.append("tag_filter = ?")
+                params.append(json.dumps(tag_filter, ensure_ascii=False))
+            if enabled is not None:
+                updates.append("enabled = ?")
+                params.append(1 if enabled else 0)
+            if updates:
+                params.append(autoselect_id)
+                query = f"UPDATE autoselects SET {', '.join(updates)} WHERE id = ?"
+                await self.conn.execute(query, tuple(params))
+                await self.conn.commit()
+
+    # --- Security Rules (Hide Settings & Encryption) ---
+
+    async def get_security_rules(self):
+        raw = await self.get_meta("security_rules", "{}")
+        try:
+            val = json.loads(raw)
+            if isinstance(val, dict):
+                return val
+        except Exception:
+            pass
+        return {"hide_settings_groups": ["*"], "happ_encrypt_groups": []}
+
+    async def set_security_rules(self, rules_dict):
+        await self.set_meta("security_rules", json.dumps(rules_dict, ensure_ascii=False))
 
     # --- Group Rules ---
 

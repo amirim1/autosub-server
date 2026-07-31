@@ -183,11 +183,15 @@ async def render_admin(request, storage, message="", csrf_token=""):
     local_groups = await storage.get_all_client_groups()
     autoselects = await storage.get_autoselects()
     group_rules = await storage.get_group_rules()
+    security_rules = await storage.get_security_rules()
 
     rules_text = "\n".join(f"{group}={','.join(ids)}" for group, ids in group_rules.items())
     overrides_text = "\n".join(
         f"{key}={','.join(groups)}" for key, groups in overrides.items()
     )
+
+    sec_hide_text = ",".join(security_rules.get("hide_settings_groups", ["*"]))
+    sec_happ_text = ",".join(security_rules.get("happ_encrypt_groups", []))
 
     probe_url, probe_interval = await storage.get_probe_config()
 
@@ -207,6 +211,8 @@ async def render_admin(request, storage, message="", csrf_token=""):
         "probe_interval": probe_interval,
         "rules_text": rules_text,
         "overrides_text": overrides_text,
+        "sec_hide_text": sec_hide_text,
+        "sec_happ_text": sec_happ_text,
         "catalog": catalog,
         "grouped_clients": list(grouped_clients.values()) if grouped_clients else [],
         "local_groups": local_groups,
@@ -326,6 +332,19 @@ async def save_admin_form(storage, data):
     overrides = parse_overrides_text(data.get("client_group_overrides", ""))
     await storage.set_client_group_overrides(overrides)
 
+    hide_groups = data.get("security_hide_groups", "*")
+    if isinstance(hide_groups, list):
+        hide_groups = hide_groups[0]
+    happ_groups = data.get("security_happ_groups", "")
+    if isinstance(happ_groups, list):
+        happ_groups = happ_groups[0]
+
+    sec_dict = {
+        "hide_settings_groups": [g.strip() for g in str(hide_groups).split(",") if g.strip()],
+        "happ_encrypt_groups": [g.strip() for g in str(happ_groups).split(",") if g.strip()],
+    }
+    await storage.set_security_rules(sec_dict)
+
     probe_url = data.get("probe_url", "http://www.gstatic.com/generate_204")
     probe_interval = data.get("probe_interval", "60s")
     await storage.set_probe_config(probe_url, probe_interval)
@@ -333,16 +352,21 @@ async def save_admin_form(storage, data):
     autoselects = await storage.get_autoselects()
     for auto in autoselects:
         aid = auto.get("id")
+        name = data.get(f"name_{aid}", auto.get("name"))
+        if isinstance(name, list):
+            name = name[0]
+        name = str(name).strip() if name else auto.get("name")
+        
         mode = data.get(f"mode_{aid}", "")
         if isinstance(mode, str) and mode == "*":
-            await storage.update_autoselect(aid, ["*"], [])
+            await storage.update_autoselect(aid, selected_node_ids=["*"], tag_filter=[], name=name)
         else:
             tag_key = f"tag_{aid}"
             tag_raw = data.get(tag_key, [])
             if isinstance(tag_raw, str):
                 tag_raw = [tag_raw]
             tag_filter = [t.strip() for t in tag_raw if t.strip()]
-            await storage.update_autoselect(aid, ["*"], tag_filter)
+            await storage.update_autoselect(aid, selected_node_ids=["*"], tag_filter=tag_filter, name=name)
 
 
 # Need env_get for render_api_test fallback

@@ -2,6 +2,15 @@
 
 All notable changes to AutoSub Server will be documented in this file.
 
+## [v1.3.0] - 2026-07-31
+
+### Added
+- **Customizable Autoselect Balancers**: Full CRUD management of autoselect profiles in the Admin Dashboard. Users can rename existing autoselect profiles (e.g. `🚀 Основные авто` -> `🚀 Мой Авто VPN`), create new custom balancers (e.g. `🇩🇪 Германия Авто`), and delete custom profiles.
+- **Selective Config Protection (`Hide-Settings`)**: Group/client configurable setting for `Hide-Settings: true` headers. Completely locks configuration details (IP, ports, keys) in Happ/v2rayNG UI for selected client groups while keeping them accessible for admin/testing groups.
+- **Happ Subscription Encryption Config**: Added database schema and dashboard configuration for per-group Happ subscription encryption rules.
+
+---
+
 ## [v1.2.0] - 2026-07-31
 
 ### Added

@@ -17,7 +17,7 @@ from config import APP_DIR, CONFIG_PATH, DB_PATH, ensure_app_dir, env_get, load_
 from logger import logger
 from storage import Storage
 from api_client import fetch_original_sub_html
-from builder import build_for_subscription, discover_nodes_from_sub_id
+from builder import build_for_subscription, discover_nodes_from_sub_id, resolve_security_flags
 from dashboard import (
     render_admin,
     render_api_test,
@@ -199,6 +199,13 @@ async def handle_json_route(sub_id: str, request: Request):
             headers[key] = header_val
             
         media_type = ctype if "json" in ctype else "application/json; charset=utf-8"
+        sec_flags = await resolve_security_flags(sub_id, storage)
+        if sec_flags.get("hide_settings"):
+            headers["Hide-Settings"] = "true"
+            headers["hide-settings"] = "true"
+            headers["Hide-User-Info"] = "true"
+            headers["hide-user-info"] = "true"
+
         return Response(content=output.encode("utf-8"), media_type=media_type, headers=headers)
     except Exception as e:
         logger.error(f"Error in JSON route: {e}\n{traceback.format_exc()}")
@@ -304,6 +311,42 @@ async def admin_delete_client_group(csrf: str = Form("", alias="_csrf"), sub_id:
     sub_id = sub_id.strip()
     if sub_id:
         await storage.delete_client_groups(sub_id)
+    return RedirectResponse(url="/admin", status_code=303)
+
+
+@app.post("/admin/add-autoselect", dependencies=[Depends(verify_admin)])
+async def admin_add_autoselect(
+    csrf: str = Form("", alias="_csrf"),
+    autoselect_id: str = Form(""),
+    name: str = Form(""),
+):
+    if not _validate_csrf_token(csrf):
+        return PlainTextResponse("CSRF token invalid or expired. Please reload the page.", status_code=403)
+    autoselect_id = autoselect_id.strip()
+    name = name.strip()
+    if autoselect_id and name:
+        try:
+            await storage.add_autoselect(autoselect_id, name)
+        except Exception as exc:
+            logger.error(f"Failed to add autoselect profile: {exc}")
+            return PlainTextResponse(f"add autoselect failed: {exc}", status_code=500)
+    return RedirectResponse(url="/admin", status_code=303)
+
+
+@app.post("/admin/delete-autoselect", dependencies=[Depends(verify_admin)])
+async def admin_delete_autoselect(
+    csrf: str = Form("", alias="_csrf"),
+    autoselect_id: str = Form(""),
+):
+    if not _validate_csrf_token(csrf):
+        return PlainTextResponse("CSRF token invalid or expired. Please reload the page.", status_code=403)
+    autoselect_id = autoselect_id.strip()
+    if autoselect_id:
+        try:
+            await storage.delete_autoselect(autoselect_id)
+        except Exception as exc:
+            logger.error(f"Failed to delete autoselect profile: {exc}")
+            return PlainTextResponse(f"delete autoselect failed: {exc}", status_code=500)
     return RedirectResponse(url="/admin", status_code=303)
 
 

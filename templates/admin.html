@@ -60,6 +60,22 @@
         </div>
 
         <div class="card">
+            <h2>Защита настроек и шифрование (Security Rules)</h2>
+            <div class="grid">
+                <div>
+                    <label>Группы / Email для Hide-Settings (скрытие конфига в приложении)</label>
+                    <input type="text" name="security_hide_groups" value="{{ sec_hide_text }}" placeholder="* или group1,group2">
+                    <p class="muted">Укажите <b>*</b> (для всех) или список групп через запятую. Клиенты с этой настройкой не смогут просматривать IP/порты в Happ/v2rayNG.</p>
+                </div>
+                <div>
+                    <label>Группы / Email для шифрования Happ</label>
+                    <input type="text" name="security_happ_groups" value="{{ sec_happ_text }}" placeholder="group1, group2">
+                    <p class="muted">Группы или e-mail, которым отсылается зашифрованная подписка Happ.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
             <h2>Probe настройки</h2>
             <div class="grid">
                 <div>
@@ -74,14 +90,28 @@
         </div>
 
         <div class="card">
-            <h2>Автовыборы</h2>
-            <p class="muted">Порядок выдачи равен порядку ниже. Оригинальные ноды всегда остаются после них.</p>
+            <h2>Автовыборы (Балансировщики)</h2>
+            <p class="muted">Порядок выдачи равен порядку ниже. Вы можете менять название или создавать новые профили.</p>
         </div>
 
         {% for auto in autos %}
         <div class="card">
-            <h3>{{ auto.name }}</h3>
-            <p class="muted">ID: {{ auto.id }} &middot; стратегия: наименьшая задержка &middot; выбрано: {% if auto.tag_filter_count %}{{ auto.tag_filter_count }}{% else %}все{% endif %}</p>
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+                <div style="flex:1;">
+                    <label>Отображаемое название профиля</label>
+                    <input type="text" name="name_{{ auto.id }}" value="{{ auto.name }}" style="font-weight:bold; font-size:1.1em;">
+                </div>
+                <div>
+                    {% if auto.id not in ['main_auto', 'all_auto'] %}
+                    <form method="post" action="/admin/delete-autoselect" style="display:inline;" onsubmit="return confirm('Удалить балансировщик {{ auto.name }}?');">
+                        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                        <input type="hidden" name="autoselect_id" value="{{ auto.id }}">
+                        <button type="submit" class="mini danger" style="margin-top:22px;">Удалить</button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+            <p class="muted">ID: <code>{{ auto.id }}</code> &middot; стратегия: наименьшая задержка &middot; выбрано: {% if auto.tag_filter_count %}{{ auto.tag_filter_count }}{% else %}все{% endif %}</p>
             <div class="toolbar">
                 <label class="check">
                     <input type="checkbox" name="mode_{{ auto.id }}" value="*" {% if not auto.tag_filter_count %}checked{% endif %}> Все ноды пользователя
@@ -104,8 +134,18 @@
         </div>
         {% endfor %}
 
-        <button type="submit">Сохранить настройки</button>
+        <button type="submit" style="margin-bottom: 20px;">Сохранить настройки</button>
     </form>
+
+    <div class="card">
+        <h2>➕ Добавить новый балансировщик</h2>
+        <form method="post" action="/admin/add-autoselect" class="toolbar">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <input type="text" name="autoselect_id" placeholder="id (напр. de_auto)" style="width:200px" required>
+            <input type="text" name="name" placeholder="Имя (напр. 🇩🇪 Германия Авто)" style="width:300px" required>
+            <button type="submit">Создать профиль</button>
+        </form>
+    </div>
 
     <div class="card">
         <h2>Локальные группы клиентов</h2>
