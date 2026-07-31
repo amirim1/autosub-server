@@ -13,7 +13,7 @@ from builder import (
 )
 from fingerprint import node_name, profile_node_id, node_summary
 from fastapi.templating import Jinja2Templates
-from config import APP_DIR
+from config import APP_DIR, VERSION
 
 templates_dir = APP_DIR / "templates"
 if not templates_dir.exists():
@@ -217,7 +217,8 @@ async def render_admin(request, storage, message="", csrf_token=""):
         "grouped_clients": list(grouped_clients.values()) if grouped_clients else [],
         "local_groups": local_groups,
         "autos": autoselects,
-        "clients_error": clients_error
+        "clients_error": clients_error,
+        "app_version": VERSION
     }
     return templates.TemplateResponse(request=request, name="admin.html", context=context)
 

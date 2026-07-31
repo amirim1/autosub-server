@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import uvicorn
 
-from config import APP_DIR, CONFIG_PATH, DB_PATH, ensure_app_dir, env_get, load_config
+from config import APP_DIR, CONFIG_PATH, DB_PATH, ensure_app_dir, env_get, load_config, VERSION
 from logger import logger
 from storage import Storage
 from api_client import fetch_original_sub_html
@@ -84,7 +84,7 @@ async def lifespan(app: FastAPI):
             logger.info("config.json migrated to SQLite")
     else:
         logger.warning(f"config.json not found at {CONFIG_PATH}, starting fresh")
-    logger.info("AutoSub Server started")
+    logger.info(f"AutoSub Server v{VERSION} started")
     logger.info(f"DB: {DB_PATH}")
     admin_password = env_get("AUTOSUB_ADMIN_PASSWORD", "")
     if admin_password:
@@ -108,7 +108,7 @@ if static_dir.exists():
 @app.get("/")
 @app.get("/health")
 async def health():
-    return PlainTextResponse("AutoSub Server OK")
+    return PlainTextResponse(f"AutoSub Server v{VERSION} OK")
 
 
 # Rate limiting store (in-memory)
