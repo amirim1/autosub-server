@@ -11,6 +11,7 @@ All notable changes to AutoSub Server will be documented in this file.
 - **Legacy Cleanup**: Removed obsolete 3x-ui flat root fields (`address`, `add`, `port`).
 
 ### Added
+- **Legacy `/sub/` Route Support**: Added `@app.get("/sub/{sub_id}")` route to support serving AutoSub JSON directly over legacy `/sub/` subscription links without changing client URLs.
 - **Outbound Validation Logging**: Added automatic WARNING log detection when receiving invalid outbounds from upstream panels (`missing vnext / servers`).
 - **Structure Documentation**: Created `docs/structure.md` detailing repository layout, branching model (`dev`/`main`), and release workflow.
 

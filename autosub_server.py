@@ -138,6 +138,7 @@ def _check_rate_limit(ip: str) -> bool:
 
 
 @app.get("/json/{sub_id}")
+@app.get("/sub/{sub_id}")
 async def handle_json_route(sub_id: str, request: Request):
     # Extract client IP (handle Nginx reverse proxy headers)
     client_ip = (
