@@ -305,7 +305,7 @@ async def admin_discover(request: Request, sub_id: str = Form(""), csrf: str = F
 @app.post("/admin/set-client-group", dependencies=[Depends(verify_admin)])
 async def admin_set_client_group(csrf: str = Form("", alias="_csrf"), sub_id: str = Form(""), email: str = Form(""), groups: str = Form("")):
     if not _validate_csrf_token(csrf):
-        return PlainTextResponse("CSRF token invalid or expired. Please reload the page.", status_code=403)
+        return RedirectResponse(url="/admin?msg=Ошибка+CSRF+токена.+Страница+была+обновлена", status_code=303)
     sub_id = sub_id.strip()
     if sub_id:
         await storage.set_client_groups(sub_id, email.strip(), groups.strip())
@@ -316,7 +316,7 @@ async def admin_set_client_group(csrf: str = Form("", alias="_csrf"), sub_id: st
 @app.post("/admin/delete-client-group", dependencies=[Depends(verify_admin)])
 async def admin_delete_client_group(csrf: str = Form("", alias="_csrf"), sub_id: str = Form("")):
     if not _validate_csrf_token(csrf):
-        return PlainTextResponse("CSRF token invalid or expired. Please reload the page.", status_code=403)
+        return RedirectResponse(url="/admin?msg=Ошибка+CSRF+токена.+Страница+была+обновлена", status_code=303)
     sub_id = sub_id.strip()
     if sub_id:
         await storage.delete_client_groups(sub_id)
@@ -331,7 +331,7 @@ async def admin_add_autoselect(
     name: str = Form(""),
 ):
     if not _validate_csrf_token(csrf):
-        return PlainTextResponse("CSRF token invalid or expired. Please reload the page.", status_code=403)
+        return RedirectResponse(url="/admin?msg=Ошибка+CSRF+токена.+Страница+была+обновлена", status_code=303)
     autoselect_id = autoselect_id.strip()
     name = name.strip()
     if autoselect_id and name:
@@ -350,7 +350,7 @@ async def admin_delete_autoselect(
     autoselect_id: str = Form(""),
 ):
     if not _validate_csrf_token(csrf):
-        return PlainTextResponse("CSRF token invalid or expired. Please reload the page.", status_code=403)
+        return RedirectResponse(url="/admin?msg=Ошибка+CSRF+токена.+Страница+была+обновлена", status_code=303)
     autoselect_id = autoselect_id.strip()
     if autoselect_id:
         try:
