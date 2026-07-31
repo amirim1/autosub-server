@@ -279,11 +279,10 @@ async def admin_save(request: Request):
         csrf = csrf[0]
         
     if not _validate_csrf_token(csrf):
-        return PlainTextResponse("CSRF token invalid or expired. Please reload the page.", status_code=403)
+        return RedirectResponse(url="/admin?msg=Ошибка+CSRF+токена.+Страница+была+обновлена", status_code=303)
     try:
         await save_admin_form(storage, parsed)
-        csrf_token = _generate_csrf_token()
-        return await render_admin(request, storage, "Настройки сохранены", csrf_token=csrf_token)
+        return RedirectResponse(url="/admin?msg=Настройки+успешно+сохранены", status_code=303)
     except Exception as exc:
         return PlainTextResponse(f"save failed: {exc}", status_code=500)
 
@@ -291,15 +290,14 @@ async def admin_save(request: Request):
 @app.post("/admin/discover", dependencies=[Depends(verify_admin)])
 async def admin_discover(request: Request, sub_id: str = Form(""), csrf: str = Form("", alias="_csrf")):
     if not _validate_csrf_token(csrf):
-        return PlainTextResponse("CSRF token invalid or expired. Please reload the page.", status_code=403)
+        return RedirectResponse(url="/admin?msg=Ошибка+CSRF+токена.+Страница+была+обновлена", status_code=303)
     sub_id = sub_id.strip()
     if not sub_id:
         return RedirectResponse(url="/admin", status_code=303)
     try:
         nodes = await discover_nodes_from_sub_id(sub_id)
         await storage.set_node_catalog(nodes)
-        csrf_token = _generate_csrf_token()
-        return await render_admin(request, storage, f"Каталог обновлен: {len(nodes)} нод", csrf_token=csrf_token)
+        return RedirectResponse(url=f"/admin?msg=Каталог+успешно+обновлен:+{len(nodes)}+нод", status_code=303)
     except Exception as exc:
         return PlainTextResponse(f"discovery failed: {exc}", status_code=500)
 
