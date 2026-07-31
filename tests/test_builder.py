@@ -62,6 +62,11 @@ def test_clean_enrichment():
             assert node.get("address") == "pl01.amirim.space"
             assert node.get("add") == "pl01.amirim.space"
             assert node.get("port") == 45336
+            assert "inbounds" in node and len(node["inbounds"]) > 0
+            assert "outbounds" in node and len(node["outbounds"]) > 0
+            assert node.get("remarks") != ""
+            assert node.get("name") != ""
+            assert node.get("ps") != ""
             if "settings" in node and isinstance(node["settings"], dict):
                 assert node["settings"].get("address") == "pl01.amirim.space"
                 assert node["settings"].get("port") == 45336

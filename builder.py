@@ -49,6 +49,14 @@ def build_autoselect_profile(template_profile, selected_profiles, autoselect, pr
     for key in ("remarks", "remark", "ps", "name"):
         result[key] = name
 
+    result["inbounds"] = [
+        {
+            "listen": "127.0.0.1",
+            "port": 10808,
+            "protocol": "socks",
+            "settings": {"auth": "noauth"},
+        }
+    ]
     result["outbounds"] = selected_outbounds + [_direct_outbound(), _block_outbound()]
     result["observatory"] = {
         "subjectSelector": tags,
@@ -272,7 +280,7 @@ async def build_for_subscription(sub_id, storage, query=""):
 
     output = dummy_nodes + auto_profiles + remaining_profiles
     
-    # Clean internal fields and inject address/port for v2rayNG/Happ ping
+    # Clean internal fields and inject address/port/inbounds/outbounds for v2rayNG/Happ ping
     def _extract_addr_port(obj):
         if not isinstance(obj, dict):
             return None, None
@@ -310,14 +318,44 @@ async def build_for_subscription(sub_id, storage, query=""):
         if not isinstance(p, dict):
             return p
         cleaned = {k: v for k, v in p.items() if not str(k).startswith("_")}
+
+        name_val = cleaned.get("remarks") or cleaned.get("name") or cleaned.get("ps") or cleaned.get("tag") or ""
+        if name_val:
+            cleaned["remarks"] = name_val
+            cleaned["name"] = name_val
+            cleaned["ps"] = name_val
+            cleaned["tag"] = name_val
+
         addr, port = _extract_addr_port(cleaned)
         if addr and port:
-            cleaned["address"] = addr
-            cleaned["add"] = addr
-            cleaned["port"] = port
+            port_val = int(port) if isinstance(port, (int, str)) and str(port).isdigit() else port
+            cleaned["address"] = str(addr)
+            cleaned["add"] = str(addr)
+            cleaned["port"] = port_val
             if "settings" in cleaned and isinstance(cleaned["settings"], dict):
-                cleaned["settings"]["address"] = addr
-                cleaned["settings"]["port"] = port
+                cleaned["settings"]["address"] = str(addr)
+                cleaned["settings"]["port"] = port_val
+
+        if "inbounds" not in cleaned:
+            cleaned["inbounds"] = [
+                {
+                    "listen": "127.0.0.1",
+                    "port": 10808,
+                    "protocol": "socks",
+                    "settings": {"auth": "noauth"},
+                }
+            ]
+
+        if "outbounds" not in cleaned and "protocol" in cleaned:
+            outbound_single = {
+                "tag": cleaned.get("tag") or "proxy",
+                "protocol": cleaned["protocol"],
+                "settings": cleaned.get("settings", {}),
+            }
+            if "streamSettings" in cleaned:
+                outbound_single["streamSettings"] = cleaned["streamSettings"]
+            cleaned["outbounds"] = [outbound_single, _direct_outbound(), _block_outbound()]
+
         return cleaned
 
     cleaned_output = [_clean(p) for p in output]
