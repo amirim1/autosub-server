@@ -515,3 +515,15 @@ async def resolve_security_flags(sub_id, storage, client=None):
         "hide_settings": _matches(hide_groups),
         "happ_encrypt": _matches(happ_groups),
     }
+
+
+CRYPT4_PREFIX = "crypt4:"
+DEFAULT_CRYPT4_KEY = b"happ_crypt4_key"
+
+def encrypt_happ_crypt4(json_text: str, key: str = "happ_crypt4_key") -> str:
+    key_bytes = key.encode("utf-8") if isinstance(key, str) and key else DEFAULT_CRYPT4_KEY
+    plain_bytes = json_text.encode("utf-8")
+    key_len = len(key_bytes)
+    xored = bytes(b ^ key_bytes[i % key_len] for i, b in enumerate(plain_bytes))
+    b64_str = base64.b64encode(xored).decode("ascii")
+    return CRYPT4_PREFIX + b64_str
