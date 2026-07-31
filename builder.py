@@ -87,7 +87,7 @@ def build_autoselect_profile(template_profile, selected_profiles, autoselect, pr
     result["burstObservatory"] = {
         "pingConfig": {
             "timeout": "2s",
-            "interval": "15s",
+            "interval": probe_interval,
             "sampling": 2,
             "destination": probe_url,
             "connectivity": "",
@@ -121,6 +121,23 @@ def build_autoselect_profile(template_profile, selected_profiles, autoselect, pr
         "domain:tracker-api.vk-analytics.ru",
     ]
 
+    strategy_type = autoselect.get("strategy", "leastPing")
+    if strategy_type not in ("leastPing", "leastLoad"):
+        log(
+            f"WARNING: Unsupported autoselect strategy '{strategy_type}', "
+            "falling back to leastPing"
+        )
+        strategy_type = "leastPing"
+
+    strategy = {"type": strategy_type}
+    if strategy_type == "leastLoad":
+        strategy["settings"] = {
+            "maxRTT": "2500ms",
+            "expected": 1,
+            "baselines": ["250ms", "700ms", "1500ms"],
+            "tolerance": 0.2,
+        }
+
     result["routing"] = {
         "domainMatcher": "hybrid",
         "domainStrategy": "IPIfNonMatch",
@@ -136,15 +153,7 @@ def build_autoselect_profile(template_profile, selected_profiles, autoselect, pr
                 "tag": name,
                 "selector": tags[:],
                 "fallbackTag": tags[0] if tags else "",
-                "strategy": {
-                    "type": "leastLoad",
-                    "settings": {
-                        "maxRTT": "2500ms",
-                        "expected": 1,
-                        "baselines": ["250ms", "700ms", "1500ms"],
-                        "tolerance": 0.2,
-                    },
-                },
+                "strategy": strategy,
             }
         ],
     }
@@ -218,7 +227,7 @@ def _sub_headers(resp_headers):
     keys = (
         "Subscription-Userinfo", "Profile-Title", "Content-Disposition", 
         "Profile-Update-Interval", "Profile-Web-Page-Url",
-        "Announce", "Hide-Settings", "Routing", "Routing-Enable"
+        "Announce", "Routing", "Routing-Enable"
     )
     for key in keys:
         val = resp_headers.get(key)
@@ -242,6 +251,10 @@ async def build_for_subscription(sub_id, storage, query=""):
         log(f"{sub_id}: failed to parse upstream subscription: {exc}")
         raise RuntimeError(f"Failed to parse upstream subscription for {sub_id}: {exc}") from exc
 
+    if not profiles:
+        log(f"{sub_id}: upstream subscription is an empty profile list, passthrough original")
+        return original_text, content_type, _sub_headers(resp_headers)
+
     sub_title_env = env_get("SUB_TITLE", "")
     sub_userinfo_env = env_get("SUB_USERINFO", "")
 
@@ -258,8 +271,6 @@ async def build_for_subscription(sub_id, storage, query=""):
 
     if sub_userinfo_env:
         sub_headers["Subscription-Userinfo"] = sub_userinfo_env
-
-    sec_flags = await resolve_security_flags(sub_id, storage, client)
 
     if not client:
         log(f"{sub_id}: client not found, passthrough original")
@@ -479,10 +490,6 @@ async def build_for_subscription(sub_id, storage, query=""):
                 ],
             }
 
-        if sec_flags and sec_flags.get("hide_settings"):
-            cleaned["hideSettings"] = True
-            cleaned["hide_settings"] = True
-
         return cleaned
 
     cleaned_output = [_clean(p) for p in output]
@@ -552,13 +559,9 @@ async def resolve_security_flags(sub_id, storage, client=None):
     except Exception:
         sec_rules = {}
 
-    hide_groups = sec_rules.get("hide_settings_groups")
+    hide_groups = sec_rules.get("hide_settings_groups", [])
     if not isinstance(hide_groups, list):
-        hide_groups = ["*"]
-    happ_groups = sec_rules.get("happ_encrypt_groups")
-    if not isinstance(happ_groups, list):
-        happ_groups = []
-
+        hide_groups = []
     groups = (client or {}).get("groups") or []
     c_email = (client or {}).get("email") or ""
 
@@ -573,7 +576,4 @@ async def resolve_security_flags(sub_id, storage, client=None):
                 return True
         return False
 
-    return {
-        "hide_settings": _matches(hide_groups),
-        "happ_encrypt": _matches(happ_groups),
-    }
+    return {"hide_settings": _matches(hide_groups)}

@@ -191,7 +191,6 @@ async def render_admin(request, storage, message="", csrf_token=""):
     )
 
     sec_hide_text = ",".join(security_rules.get("hide_settings_groups", ["*"]))
-    sec_happ_text = ",".join(security_rules.get("happ_encrypt_groups", []))
 
     probe_url, probe_interval = await storage.get_probe_config()
 
@@ -219,7 +218,6 @@ async def render_admin(request, storage, message="", csrf_token=""):
         "rules_text": rules_text,
         "overrides_text": overrides_text,
         "sec_hide_text": sec_hide_text,
-        "sec_happ_text": sec_happ_text,
         "catalog": catalog,
         "grouped_clients": list(grouped_clients.values()) if grouped_clients else [],
         "local_groups": local_groups,
@@ -350,14 +348,12 @@ async def save_admin_form(storage, data):
     hide_groups = data.get("security_hide_groups", "*")
     if isinstance(hide_groups, list):
         hide_groups = hide_groups[0]
-    happ_groups = data.get("security_happ_groups", "")
-    if isinstance(happ_groups, list):
-        happ_groups = happ_groups[0]
 
-    sec_dict = {
-        "hide_settings_groups": [g.strip() for g in str(hide_groups).split(",") if g.strip()],
-        "happ_encrypt_groups": [g.strip() for g in str(happ_groups).split(",") if g.strip()],
-    }
+    existing_security_rules = await storage.get_security_rules()
+    sec_dict = dict(existing_security_rules) if isinstance(existing_security_rules, dict) else {}
+    sec_dict["hide_settings_groups"] = [
+        group.strip() for group in str(hide_groups).split(",") if group.strip()
+    ]
     await storage.set_security_rules(sec_dict)
 
     probe_url = data.get("probe_url", "http://www.gstatic.com/generate_204")
@@ -371,17 +367,22 @@ async def save_admin_form(storage, data):
         if isinstance(name, list):
             name = name[0]
         name = str(name).strip() if name else auto.get("name")
+        strategy = data.get(f"strategy_{aid}", auto.get("strategy", "leastPing"))
+        if isinstance(strategy, list):
+            strategy = strategy[0]
+        if strategy not in ("leastPing", "leastLoad"):
+            strategy = "leastPing"
         
         mode = data.get(f"mode_{aid}", "")
         if isinstance(mode, str) and mode == "*":
-            await storage.update_autoselect(aid, selected_node_ids=["*"], tag_filter=[], name=name)
+            await storage.update_autoselect(aid, selected_node_ids=["*"], tag_filter=[], name=name, strategy=strategy)
         else:
             tag_key = f"tag_{aid}"
             tag_raw = data.get(tag_key, [])
             if isinstance(tag_raw, str):
                 tag_raw = [tag_raw]
             tag_filter = [t.strip() for t in tag_raw if t.strip()]
-            await storage.update_autoselect(aid, selected_node_ids=["*"], tag_filter=tag_filter, name=name)
+            await storage.update_autoselect(aid, selected_node_ids=["*"], tag_filter=tag_filter, name=name, strategy=strategy)
 
 
 # Need env_get for render_api_test fallback

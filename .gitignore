@@ -5,5 +5,3 @@ __pycache__/
 data.db
 *.log
 *.log.*
-.agents/
-AGENTS.md

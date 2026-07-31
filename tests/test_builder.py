@@ -1,4 +1,69 @@
-from builder import match_profiles
+import asyncio
+import json
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from builder import build_autoselect_profile, build_for_subscription, match_profiles
+
+
+def _selected_profile():
+    return {
+        "remarks": "Node 1",
+        "_outbound": {
+            "protocol": "vless",
+            "settings": {
+                "vnext": [
+                    {
+                        "address": "node.example.com",
+                        "port": 443,
+                        "users": [{"id": "uuid-1"}],
+                    }
+                ]
+            },
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected", "has_settings"),
+    [
+        ("leastPing", "leastPing", False),
+        ("leastLoad", "leastLoad", True),
+        ("unsupported", "leastPing", False),
+    ],
+)
+def test_build_autoselect_uses_probe_interval_and_strategy(configured, expected, has_settings):
+    result = build_autoselect_profile(
+        {"remarks": "Template"},
+        [_selected_profile()],
+        {"name": "Auto", "strategy": configured},
+        "https://probe.example/generate_204",
+        "10m",
+    )
+
+    assert result["burstObservatory"]["pingConfig"]["interval"] == "10m"
+    strategy = result["routing"]["balancers"][0]["strategy"]
+    assert strategy["type"] == expected
+    assert ("settings" in strategy) is has_settings
+
+
+def test_empty_subscription_is_passed_through():
+    storage_mock = AsyncMock()
+    storage_mock.get_probe_config.return_value = ("https://probe.example/", "1m")
+
+    with patch(
+        "builder.fetch_original_subscription",
+        new=AsyncMock(return_value=("[]", "application/json", {"Profile-Title": "Empty"})),
+    ):
+        output, content_type, headers = asyncio.run(
+            build_for_subscription("empty-sub", storage_mock)
+        )
+
+    assert output == "[]"
+    assert content_type == "application/json"
+    assert headers["Profile-Title"] == "Empty"
+    storage_mock.get_group_rules.assert_not_awaited()
 
 def test_match_profiles():
     profiles = [
@@ -22,10 +87,6 @@ def test_match_profiles():
 
 
 def test_clean_enrichment():
-    import json
-    from unittest.mock import AsyncMock, patch
-    from builder import build_for_subscription
-
     storage_mock = AsyncMock()
     storage_mock.get_probe_config.return_value = ("http://cp.cloudflare.com/", "10m")
     storage_mock.get_client_groups.return_value = ["vip"]
@@ -61,6 +122,8 @@ def test_clean_enrichment():
         for node in nodes:
             assert "inbounds" in node and len(node["inbounds"]) > 0
             assert "outbounds" in node and len(node["outbounds"]) > 0
+            assert "hideSettings" not in node
+            assert "hide_settings" not in node
             assert node.get("remarks") != ""
             assert node.get("name") != ""
             assert node.get("ps") != ""
@@ -70,4 +133,3 @@ def test_clean_enrichment():
             vnext = settings["vnext"][0]
             assert vnext["address"] == "pl01.amirim.space"
             assert vnext["port"] == 45336
-

@@ -44,7 +44,17 @@ def test_storage_autoselect_crud_and_security(tmp_path):
         de2 = next((a for a in autos2 if a["id"] == "de_auto"), None)
         assert de2["name"] == "🇩🇪 Германия Супер Авто"
 
-        # Security rules
+        await store.update_autoselect("de_auto", strategy="leastLoad")
+        autos_strategy = await store.get_autoselects()
+        de_strategy = next(a for a in autos_strategy if a["id"] == "de_auto")
+        assert de_strategy["strategy"] == "leastLoad"
+
+        await store.update_autoselect("de_auto", strategy="invalid")
+        autos_fallback = await store.get_autoselects()
+        de_fallback = next(a for a in autos_fallback if a["id"] == "de_auto")
+        assert de_fallback["strategy"] == "leastPing"
+
+        # Legacy Happ rules remain readable for non-destructive compatibility.
         await store.set_security_rules({"hide_settings_groups": ["default"], "happ_encrypt_groups": ["vip"]})
         sec = await store.get_security_rules()
         assert sec["hide_settings_groups"] == ["default"]

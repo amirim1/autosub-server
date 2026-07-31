@@ -1,9 +1,17 @@
 import copy
 import json
 import asyncio
-import aiosqlite
 import time
 from datetime import datetime, timezone
+
+import aiosqlite
+
+
+SUPPORTED_AUTOSELECT_STRATEGIES = {"leastPing", "leastLoad"}
+
+
+def normalize_autoselect_strategy(strategy):
+    return strategy if strategy in SUPPORTED_AUTOSELECT_STRATEGIES else "leastPing"
 
 
 SCHEMA_VERSION = 4
@@ -317,7 +325,7 @@ class Storage:
                 (
                     autoselect_id,
                     name,
-                    strategy,
+                    normalize_autoselect_strategy(strategy),
                     json.dumps(selected_node_ids, ensure_ascii=False),
                     json.dumps(tag_filter, ensure_ascii=False),
                     1 if enabled else 0,
@@ -331,7 +339,7 @@ class Storage:
             await self.conn.execute("DELETE FROM group_rules WHERE autoselect_id = ?", (autoselect_id,))
             await self.conn.commit()
 
-    async def update_autoselect(self, autoselect_id, selected_node_ids=None, tag_filter=None, name=None, enabled=None):
+    async def update_autoselect(self, autoselect_id, selected_node_ids=None, tag_filter=None, name=None, enabled=None, strategy=None):
         async with self._lock:
             updates = []
             params = []
@@ -347,6 +355,9 @@ class Storage:
             if enabled is not None:
                 updates.append("enabled = ?")
                 params.append(1 if enabled else 0)
+            if strategy is not None:
+                updates.append("strategy = ?")
+                params.append(normalize_autoselect_strategy(strategy))
             if updates:
                 params.append(autoselect_id)
                 query = f"UPDATE autoselects SET {', '.join(updates)} WHERE id = ?"
@@ -363,7 +374,7 @@ class Storage:
                 return val
         except Exception:
             pass
-        return {"hide_settings_groups": ["*"], "happ_encrypt_groups": []}
+        return {"hide_settings_groups": ["*"]}
 
     async def set_security_rules(self, rules_dict):
         await self.set_meta("security_rules", json.dumps(rules_dict, ensure_ascii=False))

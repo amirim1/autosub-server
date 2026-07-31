@@ -2,6 +2,24 @@
 
 All notable changes to AutoSub Server will be documented in this file.
 
+## [v2.1.0] - 2026-07-31
+
+2026-08-01: Исправить ложную поддержку шифрования Happ в `autosub_server.py`, `builder.py` и админке - удалены недокументированные заголовки и поля payload, обычная JSON-подписка больше не заявляется как зашифрованная (завершено).
+
+### Fixed
+- **Probe Interval Persistence**: `probe_interval` from SQLite and the dashboard now propagates into generated `burstObservatory.pingConfig.interval` instead of being hardcoded.
+- **Balancer Strategy Handling**: Autoselect profiles now honor the stored `strategy` value, support both `leastPing` and `leastLoad`, and safely fall back to `leastPing` with a warning for unknown values.
+- **Empty JSON Subscription Handling**: Valid upstream `[]` subscriptions now return cleanly with HTTP 200 and original payload semantics instead of failing on `profiles[0]`.
+- **Trusted Proxy Rate Limiting**: Client IP detection now trusts forwarded headers only from explicitly configured reverse proxies via `AUTOSUB_TRUSTED_PROXIES`, blocking spoofed `X-Real-IP` and `X-Forwarded-For` values from direct clients.
+- **Graceful HTTP Client Shutdown**: The shared `httpx.AsyncClient` used by `XuiApi` now closes during application shutdown, and repeated close calls remain safe.
+- **Pytest Discovery**: Added native `pytest.ini` discovery so `pytest -q` works without `PYTHONPATH=.`
+
+### Added
+- **Admin Strategy Selection**: The dashboard can now create and edit autoselect profiles with explicit `leastPing` or `leastLoad` strategy selection.
+- **Regression Coverage**: Added tests for balancer parameters, empty subscriptions, trusted proxy parsing, lifecycle cleanup, Basic Auth, CSRF flows, and rate limiting behavior.
+
+---
+
 ## [v2.0.0] - 2026-07-31
 
 ### Added
@@ -23,7 +41,7 @@ All notable changes to AutoSub Server will be documented in this file.
 - **Admin Dashboard Glassmorphism UI Overhaul**: Full modern dark glassmorphism redesign of the Admin Dashboard with top metrics cards (Total Nodes, Active Balancers, Manual Clients).
 - **Floating Toast Notifications & Sticky Action Bar**: Added animated top-right toast notifications for all dashboard save/edit actions and a sticky save bar pinned at the bottom of the viewport.
 - **Dedicated All Clients & Server Nodes Views**: Added dedicated interactive cards displaying all synced 3x-ui clients with assigned groups, inbounds, and JSON subscription links, plus a complete server nodes catalog table.
-- **Selective Config Protection & Security Rules**: Full support for `Hide-Settings: true` and `Happ-Encrypt: true` header/payload rules configured per client group.
+- **Legacy Security Rules**: Introduced group-based Hide-Settings and experimental Happ payload controls; the unsupported Happ payload behavior was removed in v2.1.0.
 - **Extended Russian Routing Bypass**: Expanded the `direct` routing rules to include a comprehensive, full reference list of major Russian services and domains (Yandex, VK, Mail.ru, banks, e-commerce, etc.) to optimize connectivity speeds and bypass VPN routing for local resources.
 - **Advanced Load Balancing & Optimization**: Upgraded balancer strategy to `leastLoad` for intelligent traffic distribution across grouped latency baselines, and optimized `burstObservatory` check frequency to reduce mobile battery drain while maintaining fast failover.
 
@@ -33,8 +51,8 @@ All notable changes to AutoSub Server will be documented in this file.
 
 ### Added
 - **Customizable Autoselect Balancers**: Full CRUD management of autoselect profiles in the Admin Dashboard. Users can rename existing autoselect profiles (e.g. `🚀 Основные авто` -> `🚀 Мой Авто VPN`), create new custom balancers (e.g. `🇩🇪 Германия Авто`), and delete custom profiles.
-- **Selective Config Protection (`Hide-Settings`)**: Group/client configurable setting for `Hide-Settings: true` headers. Completely locks configuration details (IP, ports, keys) in Happ/v2rayNG UI for selected client groups while keeping them accessible for admin/testing groups.
-- **Happ Subscription Encryption Config**: Added database schema and dashboard configuration for per-group Happ subscription encryption rules.
+- **Selective Config Metadata (`Hide-Settings`)**: Added group/client rules for emitting the `hide-settings` subscription header.
+- **Experimental Happ Encryption Config**: Added the legacy per-group setting later removed from runtime and the dashboard in v2.1.0 because Happ does not support the advertised payload header.
 
 ---
 

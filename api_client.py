@@ -146,6 +146,11 @@ class XuiApi:
         verify = env_get("XUI_TLS_VERIFY", "true").lower() not in ("0", "false", "no", "off")
         self.client = httpx.AsyncClient(verify=verify, timeout=20.0)
 
+    async def aclose(self):
+        """Close the shared HTTP client. Safe to call more than once."""
+        if not self.client.is_closed:
+            await self.client.aclose()
+
     def enabled(self):
         return bool(self.base and (self.api_token or (self.username and self.password)))
 
@@ -409,3 +414,12 @@ def get_xui_api():
     if _global_api is None:
         _global_api = XuiApi()
     return _global_api
+
+
+async def close_xui_api():
+    """Close an existing global API client without creating one."""
+    global _global_api
+    api = _global_api
+    _global_api = None
+    if api is not None:
+        await api.aclose()

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+import ipaddress
 import os
 import secrets
 import time
@@ -16,7 +17,7 @@ import uvicorn
 from config import APP_DIR, CONFIG_PATH, DB_PATH, ensure_app_dir, env_get, load_config, VERSION
 from logger import logger
 from storage import Storage
-from api_client import fetch_original_sub_html
+from api_client import close_xui_api, fetch_original_sub_html
 from builder import build_for_subscription, discover_nodes_from_sub_id, resolve_security_flags
 from dashboard import (
     render_admin,
@@ -92,10 +93,14 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("Admin dashboard: NO PASSWORD SET — anyone with port access can modify settings")
         
-    yield
-    
-    await storage.close()
-    logger.info("AutoSub Server stopped")
+    try:
+        yield
+    finally:
+        try:
+            await close_xui_api()
+        finally:
+            await storage.close()
+        logger.info("AutoSub Server stopped")
 
 
 app = FastAPI(lifespan=lifespan)
@@ -121,6 +126,60 @@ RATE_LIMIT_WINDOW = 60  # seconds
 RATE_LIMIT_MAX_REQUESTS = 30  # max requests per window
 _last_ip_cleanup = 0
 
+DEFAULT_TRUSTED_PROXIES = "127.0.0.1/32,::1/128"
+
+
+def _parse_trusted_proxies(value: str):
+    networks = []
+    for item in (value or "").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(item, strict=False))
+        except ValueError:
+            logger.warning(f"Ignoring invalid trusted proxy address/network: {item}")
+    return networks
+
+
+def _client_ip(request: Request) -> str:
+    peer = request.client.host if request.client else ""
+    try:
+        peer_ip = ipaddress.ip_address(peer)
+    except ValueError:
+        if peer:
+            logger.warning(f"Ignoring invalid request peer address: {peer}")
+        return "unknown"
+
+    trusted = _parse_trusted_proxies(
+        env_get("AUTOSUB_TRUSTED_PROXIES", DEFAULT_TRUSTED_PROXIES)
+    )
+    if not any(peer_ip in network for network in trusted):
+        return str(peer_ip)
+
+    forwarded = []
+    for item in request.headers.get("X-Forwarded-For", "").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            forwarded.append(ipaddress.ip_address(item))
+        except ValueError:
+            logger.warning(f"Ignoring invalid X-Forwarded-For address: {item}")
+
+    for candidate in reversed(forwarded):
+        if not any(candidate in network for network in trusted):
+            return str(candidate)
+
+    real_ip = request.headers.get("X-Real-IP", "").strip()
+    if real_ip:
+        try:
+            return str(ipaddress.ip_address(real_ip))
+        except ValueError:
+            logger.warning(f"Ignoring invalid X-Real-IP address: {real_ip}")
+
+    return str(peer_ip)
+
 
 def _check_rate_limit(ip: str) -> bool:
     if not ip:
@@ -145,14 +204,7 @@ def _check_rate_limit(ip: str) -> bool:
 @app.get("/json/{sub_id}")
 @app.get("/sub/{sub_id}")
 async def handle_json_route(sub_id: str, request: Request):
-    # Extract client IP (handle Nginx reverse proxy headers)
-    client_ip = (
-        request.headers.get("X-Real-IP")
-        or request.headers.get("X-Forwarded-For")
-        or (request.client.host if request.client else "")
-    )
-    if client_ip:
-        client_ip = client_ip.split(",")[0].strip()
+    client_ip = _client_ip(request)
 
     if not _check_rate_limit(client_ip):
         logger.warning(f"Rate limit exceeded for IP: {client_ip} on sub_id: {sub_id}")
@@ -204,17 +256,11 @@ async def handle_json_route(sub_id: str, request: Request):
             
         media_type = ctype if "json" in ctype else "application/json; charset=utf-8"
         sec_flags = await resolve_security_flags(sub_id, storage)
+        for key in list(headers):
+            if key.lower() == "hide-settings":
+                headers.pop(key)
         if sec_flags.get("hide_settings"):
-            headers["Hide-Settings"] = "true"
-            headers["hide-settings"] = "true"
-            headers["X-Hide-Settings"] = "true"
-            headers["x-hide-settings"] = "true"
-            headers["Hide-User-Info"] = "true"
-            headers["hide-user-info"] = "true"
-
-        if sec_flags.get("happ_encrypt"):
-            headers["Happ-Encrypt"] = "true"
-            headers["happ-encrypt"] = "true"
+            headers["hide-settings"] = "1"
 
         return Response(content=output.encode("utf-8"), media_type=media_type, headers=headers)
     except Exception as e:
@@ -329,14 +375,17 @@ async def admin_add_autoselect(
     csrf: str = Form("", alias="_csrf"),
     autoselect_id: str = Form(""),
     name: str = Form(""),
+    strategy: str = Form("leastPing"),
 ):
     if not _validate_csrf_token(csrf):
         return RedirectResponse(url="/admin?msg=Ошибка+CSRF+токена.+Страница+была+обновлена", status_code=303)
     autoselect_id = autoselect_id.strip()
     name = name.strip()
+    if strategy not in ("leastPing", "leastLoad"):
+        strategy = "leastPing"
     if autoselect_id and name:
         try:
-            await storage.add_autoselect(autoselect_id, name)
+            await storage.add_autoselect(autoselect_id, name, strategy=strategy)
             return RedirectResponse(url=f"/admin?msg=Балансировщик+{name}+успешно+создан", status_code=303)
         except Exception as exc:
             logger.error(f"Failed to add autoselect profile: {exc}")

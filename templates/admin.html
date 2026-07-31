@@ -72,19 +72,10 @@
 
         <!-- Security Rules Card -->
         <div class="card">
-            <h2>🛡️ Защита настроек и шифрование (Security Rules)</h2>
-            <div class="grid">
-                <div>
-                    <label>Группы / Email для Hide-Settings (скрытие конфига в приложении)</label>
-                    <input type="text" name="security_hide_groups" value="{{ sec_hide_text }}" placeholder="*">
-                    <p class="muted">Напишите <b>*</b> (для всех) или список групп через запятую (напр. <code>clients, default</code>). Запрещает просмотр IP/портов/ключей в Happ/v2rayNG.</p>
-                </div>
-                <div>
-                    <label>Группы / Email для шифрования Happ (Happ Payload)</label>
-                    <input type="text" name="security_happ_groups" value="{{ sec_happ_text }}" placeholder="*">
-                    <p class="muted">Напишите <b>*</b> (для всех Happ клиентов) или список групп через запятую. Включает спец-шифрование подписки Happ.</p>
-                </div>
-            </div>
+            <h2>🛡️ Метаданные Hide-Settings</h2>
+            <label>Группы / Email для заголовка Hide-Settings</label>
+            <input type="text" name="security_hide_groups" value="{{ sec_hide_text }}" placeholder="*">
+            <p class="muted">Напишите <b>*</b> (для всех) или список групп через запятую (например, <code>clients, default</code>). Заголовок не шифрует JSON. В Happ для скрытия настроек дополнительно требуется ProviderID, который AutoSub не настраивает.</p>
         </div>
 
         <!-- Probe Config -->
@@ -115,6 +106,13 @@
                     <label>Отображаемое название балансировщика</label>
                     <input type="text" name="name_{{ auto.id }}" value="{{ auto.name }}" style="font-weight:bold; font-size:1.05em;">
                 </div>
+                <div style="min-width:180px;">
+                    <label>Стратегия</label>
+                    <select name="strategy_{{ auto.id }}">
+                        <option value="leastPing" {% if auto.strategy == 'leastPing' %}selected{% endif %}>leastPing</option>
+                        <option value="leastLoad" {% if auto.strategy == 'leastLoad' %}selected{% endif %}>leastLoad</option>
+                    </select>
+                </div>
                 <div>
                     {% if auto.id not in ['main_auto', 'all_auto'] %}
                     <button type="submit" form="deleteForm_{{ auto.id }}" class="mini danger" style="margin-top:22px;" onclick="return confirm('Удалить балансировщик {{ auto.name }}?');">Удалить профиль</button>
@@ -122,7 +120,7 @@
                 </div>
             </div>
 
-            <p class="muted" style="margin-top:8px;">ID: <code>{{ auto.id }}</code> &middot; стратегия: <code>leastPing</code> &middot; выбрано нод: {% if auto.tag_filter_count %}{{ auto.tag_filter_count }}{% else %}все{% endif %}</p>
+            <p class="muted" style="margin-top:8px;">ID: <code>{{ auto.id }}</code> &middot; стратегия: <code>{{ auto.strategy }}</code> &middot; выбрано нод: {% if auto.tag_filter_count %}{{ auto.tag_filter_count }}{% else %}все{% endif %}</p>
 
             <div class="toolbar">
                 <label class="check" style="cursor:pointer;">
@@ -178,6 +176,10 @@
             <input type="hidden" name="_csrf" value="{{ csrf_token }}">
             <input type="text" name="autoselect_id" placeholder="ID профиля (напр. de_auto)" style="width:220px;" required>
             <input type="text" name="name" placeholder="Название (напр. 🇩🇪 Германия Авто)" style="width:300px;" required>
+            <select name="strategy" style="width:180px;">
+                <option value="leastPing">leastPing</option>
+                <option value="leastLoad">leastLoad</option>
+            </select>
             <button type="submit">Создать балансировщик</button>
         </form>
     </div>
