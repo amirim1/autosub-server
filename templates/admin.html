@@ -117,11 +117,7 @@
                 </div>
                 <div>
                     {% if auto.id not in ['main_auto', 'all_auto'] %}
-                    <form method="post" action="/admin/delete-autoselect" style="display:inline;" onsubmit="return confirm('Удалить балансировщик {{ auto.name }}?');">
-                        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-                        <input type="hidden" name="autoselect_id" value="{{ auto.id }}">
-                        <button type="submit" class="mini danger" style="margin-top:22px;">Удалить профиль</button>
-                    </form>
+                    <button type="submit" form="deleteForm_{{ auto.id }}" class="mini danger" style="margin-top:22px;" onclick="return confirm('Удалить балансировщик {{ auto.name }}?');">Удалить профиль</button>
                     {% endif %}
                 </div>
             </div>
@@ -335,6 +331,16 @@
         </button>
     </div>
 </div>
+
+<!-- Hidden forms for autoselect profile deletion -->
+{% for auto in autos %}
+{% if auto.id not in ['main_auto', 'all_auto'] %}
+<form id="deleteForm_{{ auto.id }}" method="post" action="/admin/delete-autoselect" style="display:none;">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <input type="hidden" name="autoselect_id" value="{{ auto.id }}">
+</form>
+{% endif %}
+{% endfor %}
 
 </body>
 </html>

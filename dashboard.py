@@ -310,8 +310,10 @@ async def render_debug(storage, sub_id):
 # --- Form parsing ---
 
 def parse_rules_text(text):
+    if isinstance(text, list):
+        text = text[0] if text else ""
     rules = {}
-    for raw in text.splitlines():
+    for raw in str(text).splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -323,8 +325,10 @@ def parse_rules_text(text):
 
 
 def parse_overrides_text(text):
+    if isinstance(text, list):
+        text = text[0] if text else ""
     overrides = {}
-    for raw in text.splitlines():
+    for raw in str(text).splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
