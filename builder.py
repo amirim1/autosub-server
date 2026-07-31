@@ -289,7 +289,9 @@ async def build_for_subscription(sub_id, storage, query=""):
         if not isinstance(settings, dict):
             settings = {}
 
-        if protocol == "vless":
+        tag = outbound.get("tag") or "unknown"
+
+        if protocol in ("vless", "vmess"):
             if "vnext" not in settings:
                 addr = settings.get("address") or settings.get("add") or ""
                 port = settings.get("port") or 443
@@ -302,10 +304,13 @@ async def build_for_subscription(sub_id, storage, query=""):
                         "id": str(vuid),
                         "encryption": encryption,
                         "level": level,
-                        "security": "auto",
+                        "security": settings.get("security", "auto"),
                     }
-                    if flow:
+                    if flow and protocol == "vless":
                         user_obj["flow"] = flow
+                    if protocol == "vmess":
+                        user_obj["alterId"] = settings.get("alterId", 0)
+
                     outbound["settings"] = {
                         "vnext": [
                             {
@@ -315,30 +320,8 @@ async def build_for_subscription(sub_id, storage, query=""):
                             }
                         ]
                     }
-        elif protocol == "vmess":
-            if "vnext" not in settings:
-                addr = settings.get("address") or settings.get("add") or ""
-                port = settings.get("port") or 443
-                vuid = settings.get("id") or settings.get("uuid") or ""
-                alter_id = settings.get("alterId", 0)
-                level = settings.get("level", 8)
-                if addr and vuid:
-                    outbound["settings"] = {
-                        "vnext": [
-                            {
-                                "address": str(addr),
-                                "port": int(port) if str(port).isdigit() else port,
-                                "users": [
-                                    {
-                                        "id": str(vuid),
-                                        "alterId": alter_id,
-                                        "security": settings.get("security", "auto"),
-                                        "level": level,
-                                    }
-                                ],
-                            }
-                        ]
-                    }
+                    log(f"WARNING: Invalid {protocol.upper()} outbound detected '{tag}' ({addr}:{port}): missing vnext, auto-fixing applied")
+
         elif protocol == "trojan":
             if "servers" not in settings:
                 addr = settings.get("address") or settings.get("add") or ""
@@ -356,6 +339,14 @@ async def build_for_subscription(sub_id, storage, query=""):
                             }
                         ]
                     }
+                    log(f"WARNING: Invalid TROJAN outbound detected '{tag}' ({addr}:{port}): missing servers, auto-fixing applied")
+
+        # Validate final structure
+        final_settings = outbound.get("settings", {})
+        if protocol in ("vless", "vmess") and "vnext" not in final_settings:
+            log(f"WARNING: Outbound '{tag}' protocol '{protocol}' is missing 'vnext' section!")
+        elif protocol == "trojan" and "servers" not in final_settings:
+            log(f"WARNING: Outbound '{tag}' protocol 'trojan' is missing 'servers' section!")
 
         return outbound
 
@@ -363,6 +354,10 @@ async def build_for_subscription(sub_id, storage, query=""):
         if not isinstance(p, dict):
             return p
         cleaned = {k: v for k, v in p.items() if not str(k).startswith("_")}
+
+        # Remove 3x-ui legacy flat subscription root fields
+        for key in ("address", "add", "port"):
+            cleaned.pop(key, None)
 
         name_val = cleaned.get("remarks") or cleaned.get("name") or cleaned.get("ps") or cleaned.get("tag") or ""
         if name_val:
@@ -384,7 +379,7 @@ async def build_for_subscription(sub_id, storage, query=""):
             outbound_single = _normalize_outbound_settings(outbound_single)
 
             cleaned["outbounds"] = [outbound_single, _direct_outbound(), _block_outbound()]
-            for key in ("protocol", "settings", "streamSettings", "address", "add", "port"):
+            for key in ("protocol", "settings", "streamSettings"):
                 cleaned.pop(key, None)
 
         elif "outbounds" in cleaned and isinstance(cleaned["outbounds"], list):
