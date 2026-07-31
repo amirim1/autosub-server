@@ -106,6 +106,10 @@ if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 @app.get("/")
+async def root_redirect():
+    return RedirectResponse(url="/admin", status_code=307)
+
+
 @app.get("/health")
 async def health():
     return PlainTextResponse(f"AutoSub Server v{VERSION} OK")
