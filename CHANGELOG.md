@@ -2,6 +2,13 @@
 
 All notable changes to AutoSub Server will be documented in this file.
 
+## [v1.3.1] - 2026-07-31
+
+### Fixed
+- **In-App Config Locking (`Hide-Settings`)**: Injected `hideSettings: true` and `hide_settings: true` properties directly into JSON profile objects as well as HTTP response headers (`Hide-Settings`, `X-Hide-Settings`), forcing Happ and v2rayNG to completely lock and disable viewing/editing node configurations in the client UI.
+
+---
+
 ## [v1.3.0] - 2026-07-31
 
 ### Added

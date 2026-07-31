@@ -416,8 +416,13 @@ async def build_for_subscription(sub_id, storage, query=""):
                 ],
             }
 
+        if sec_flags.get("hide_settings"):
+            cleaned["hideSettings"] = True
+            cleaned["hide_settings"] = True
+
         return cleaned
 
+    sec_flags = await resolve_security_flags(sub_id, storage, client)
     cleaned_output = [_clean(p) for p in output]
 
     email = client.get("email") or "client"
@@ -478,9 +483,19 @@ async def discover_nodes_from_sub_id(sub_id):
 async def resolve_security_flags(sub_id, storage, client=None):
     if not client:
         client = await resolve_client(sub_id, storage)
-    sec_rules = await storage.get_security_rules()
-    hide_groups = sec_rules.get("hide_settings_groups") or ["*"]
-    happ_groups = sec_rules.get("happ_encrypt_groups") or []
+    try:
+        sec_rules = await storage.get_security_rules()
+        if not isinstance(sec_rules, dict):
+            sec_rules = {}
+    except Exception:
+        sec_rules = {}
+
+    hide_groups = sec_rules.get("hide_settings_groups")
+    if not isinstance(hide_groups, list):
+        hide_groups = ["*"]
+    happ_groups = sec_rules.get("happ_encrypt_groups")
+    if not isinstance(happ_groups, list):
+        happ_groups = []
 
     groups = (client or {}).get("groups") or []
     c_email = (client or {}).get("email") or ""

@@ -207,6 +207,8 @@ async def handle_json_route(sub_id: str, request: Request):
         if sec_flags.get("hide_settings"):
             headers["Hide-Settings"] = "true"
             headers["hide-settings"] = "true"
+            headers["X-Hide-Settings"] = "true"
+            headers["x-hide-settings"] = "true"
             headers["Hide-User-Info"] = "true"
             headers["hide-user-info"] = "true"
 
