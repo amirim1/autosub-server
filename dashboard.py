@@ -203,6 +203,13 @@ async def render_admin(request, storage, message="", csrf_token=""):
         n["tag_or_name"] = n.get("tag") or n.get("name") or ""
         n["tag_or_name_lower"] = n["tag_or_name"].strip().lower()
 
+    if not message:
+        message = request.query_params.get("msg", "")
+
+    total_nodes = len(catalog)
+    balancer_count = len(autoselects)
+    client_count = len(grouped_clients) if grouped_clients else 0
+
     context = {
         "request": request,
         "message": message,
@@ -218,7 +225,10 @@ async def render_admin(request, storage, message="", csrf_token=""):
         "local_groups": local_groups,
         "autos": autoselects,
         "clients_error": clients_error,
-        "app_version": VERSION
+        "app_version": VERSION,
+        "total_nodes": total_nodes,
+        "balancer_count": balancer_count,
+        "client_count": client_count,
     }
     return templates.TemplateResponse(request=request, name="admin.html", context=context)
 

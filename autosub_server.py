@@ -311,6 +311,7 @@ async def admin_set_client_group(csrf: str = Form("", alias="_csrf"), sub_id: st
     sub_id = sub_id.strip()
     if sub_id:
         await storage.set_client_groups(sub_id, email.strip(), groups.strip())
+        return RedirectResponse(url="/admin?msg=Группа+клиента+успешно+обновлена", status_code=303)
     return RedirectResponse(url="/admin", status_code=303)
 
 
@@ -321,6 +322,7 @@ async def admin_delete_client_group(csrf: str = Form("", alias="_csrf"), sub_id:
     sub_id = sub_id.strip()
     if sub_id:
         await storage.delete_client_groups(sub_id)
+        return RedirectResponse(url="/admin?msg=Назначение+клиента+удалено", status_code=303)
     return RedirectResponse(url="/admin", status_code=303)
 
 
@@ -337,6 +339,7 @@ async def admin_add_autoselect(
     if autoselect_id and name:
         try:
             await storage.add_autoselect(autoselect_id, name)
+            return RedirectResponse(url=f"/admin?msg=Балансировщик+{name}+успешно+создан", status_code=303)
         except Exception as exc:
             logger.error(f"Failed to add autoselect profile: {exc}")
             return PlainTextResponse(f"add autoselect failed: {exc}", status_code=500)
@@ -354,6 +357,7 @@ async def admin_delete_autoselect(
     if autoselect_id:
         try:
             await storage.delete_autoselect(autoselect_id)
+            return RedirectResponse(url="/admin?msg=Балансировщик+удален", status_code=303)
         except Exception as exc:
             logger.error(f"Failed to delete autoselect profile: {exc}")
             return PlainTextResponse(f"delete autoselect failed: {exc}", status_code=500)

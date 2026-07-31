@@ -3,80 +3,93 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>AutoSub Dashboard</title>
+    <title>AutoSub Dashboard v{{ app_version }}</title>
     <link rel="stylesheet" href="/static/dashboard.css">
     <script src="/static/dashboard.js"></script>
 </head>
 <body>
+
+<div id="toastContainer" class="toast-container"></div>
+
+{% if message %}
+<div id="serverFlashMessage" data-message="{{ message }}" style="display:none;"></div>
+{% endif %}
+
 <div class="shell">
+    <!-- Header -->
     <div class="top">
-        <div>
-            <h1>AutoSub Dashboard <span style="font-size:0.5em; opacity:0.75; font-weight:normal; background:rgba(255,255,255,0.1); padding:2px 8px; border-radius:12px;">v{{ app_version }}</span></h1>
-            <p>Локальная панель управления JSON-подписками и автовыборами.</p>
+        <div class="brand-row">
+            <div class="brand-icon">⚡</div>
+            <div>
+                <h1>AutoSub Dashboard <span class="version-badge">v{{ app_version }}</span></h1>
+                <div class="muted">Панель управления JSON-подписками, балансировщиками и защитой серверов</div>
+            </div>
         </div>
-        <a class="btn secondary" href="/health">health</a>
-    </div>
-    {% if message %}
-    <div class="card ok">{{ message }}</div>
-    {% endif %}
-
-    <div class="grid">
-        <div class="card">
-            <h2>Discovery нод</h2>
-            <form method="post" action="/admin/discover">
-                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-                <label>ID подписки, где видны нужные ноды</label>
-                <input type="text" name="sub_id" placeholder="idподписки">
-                <p class="muted">AutoSub возьмет оригинальный JSON с локального 3x-ui и построит каталог нод для выбора.</p>
-                <button type="submit">Обновить каталог</button>
-            </form>
-        </div>
-        <div class="card">
-            <h2>Preview клиента</h2>
-            <form method="get" action="/admin/preview">
-                <label>ID подписки клиента</label>
-                <input type="text" name="sub_id" placeholder="idподписки">
-                <p class="muted">Покажет email, группы и какие автовыборы будут добавлены.</p>
-                <button type="submit">Показать preview</button>
-            </form>
+        <div class="top-actions">
+            <a class="btn secondary mini" href="/health" target="_blank">🩺 Health Check</a>
         </div>
     </div>
 
-    <form method="post" action="/admin/save">
+    <!-- Metrics Bar -->
+    <div class="metrics-grid">
+        <div class="stat-card">
+            <div class="stat-icon stat-blue">🖥️</div>
+            <div>
+                <div class="stat-val">{{ total_nodes }}</div>
+                <div class="stat-lbl">Нод в каталоге</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon stat-teal">⚖️</div>
+            <div>
+                <div class="stat-val">{{ balancer_count }}</div>
+                <div class="stat-lbl">Активные балансировщики</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon stat-purple">👥</div>
+            <div>
+                <div class="stat-val">{{ client_count }}</div>
+                <div class="stat-lbl">Ручные клиенты</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Discovery Card -->
+    <div class="card">
+        <h2>🔍 Discovery нод из подписки</h2>
+        <p class="muted">Введите sub_id для сканирования и авто-заполнения каталога серверов.</p>
+        <form method="post" action="/admin/discover" class="toolbar">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <input type="text" name="sub_id" placeholder="sub_id (напр. 6e30b6...)" style="max-width:360px;" required>
+            <button type="submit" class="secondary">Обновить каталог нод</button>
+        </form>
+    </div>
+
+    <!-- Main Config Form -->
+    <form method="post" action="/admin/save" id="mainAdminForm">
         <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-        <div class="grid">
-            <div class="card">
-                <h2>Права групп</h2>
-                <label>Формат: group=autoselect_id,autoselect_id</label>
-                <textarea name="group_rules">{{ rules_text }}</textarea>
-                <p class="muted">Пример: clients=stable и admins=stable,all.</p>
-            </div>
-            <div class="card">
-                <h2>Ручные группы клиента (override)</h2>
-                <label>Формат: email или subId = группы</label>
-                <textarea name="client_group_overrides">{{ overrides_text }}</textarea>
-                <p class="muted">Это запасной вариант, если API 3x-ui не отдает группы.</p>
-            </div>
-        </div>
 
+        <!-- Security Rules Card -->
         <div class="card">
-            <h2>Защита настроек и шифрование (Security Rules)</h2>
+            <h2>🛡️ Защита настроек и шифрование (Security Rules)</h2>
             <div class="grid">
                 <div>
                     <label>Группы / Email для Hide-Settings (скрытие конфига в приложении)</label>
                     <input type="text" name="security_hide_groups" value="{{ sec_hide_text }}" placeholder="*">
-                    <p class="muted">Напишите <b>*</b> (для всех пользователей) или список групп через запятую (напр. <code>clients, default</code>). Блокирует просмотр IP/портов в приложении.</p>
+                    <p class="muted">Напишите <b>*</b> (для всех) или список групп через запятую (напр. <code>clients, default</code>). Запрещает просмотр IP/портов/ключей в Happ/v2rayNG.</p>
                 </div>
                 <div>
-                    <label>Группы / Email для шифрования Happ (Base64 Payload)</label>
+                    <label>Группы / Email для шифрования Happ (Happ Payload)</label>
                     <input type="text" name="security_happ_groups" value="{{ sec_happ_text }}" placeholder="*">
-                    <p class="muted">Напишите <b>*</b> (для всех клиентов Happ) или список групп через запятую. Зашифровывает подписку в нечитаемый формат.</p>
+                    <p class="muted">Напишите <b>*</b> (для всех Happ клиентов) или список групп через запятую. Включает спец-шифрование подписки Happ.</p>
                 </div>
             </div>
         </div>
 
+        <!-- Probe Config -->
         <div class="card">
-            <h2>Probe настройки</h2>
+            <h2>⚙️ Probe настройки (Замер задержки)</h2>
             <div class="grid">
                 <div>
                     <label>Probe URL</label>
@@ -89,44 +102,52 @@
             </div>
         </div>
 
+        <!-- Balancers List -->
         <div class="card">
-            <h2>Автовыборы (Балансировщики)</h2>
-            <p class="muted">Порядок выдачи равен порядку ниже. Вы можете менять название или создавать новые профили.</p>
+            <h2>⚖️ Автовыборы (Балансировщики)</h2>
+            <p class="muted">Определите профили автовыбора наименьшей задержки. Вы можете редактировать названия или привязывать фильтры нод.</p>
         </div>
 
         {% for auto in autos %}
         <div class="card">
-            <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
-                <div style="flex:1;">
-                    <label>Отображаемое название профиля</label>
-                    <input type="text" name="name_{{ auto.id }}" value="{{ auto.name }}" style="font-weight:bold; font-size:1.1em;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+                <div style="flex:1; min-width:250px;">
+                    <label>Отображаемое название балансировщика</label>
+                    <input type="text" name="name_{{ auto.id }}" value="{{ auto.name }}" style="font-weight:bold; font-size:1.05em;">
                 </div>
                 <div>
                     {% if auto.id not in ['main_auto', 'all_auto'] %}
                     <form method="post" action="/admin/delete-autoselect" style="display:inline;" onsubmit="return confirm('Удалить балансировщик {{ auto.name }}?');">
                         <input type="hidden" name="_csrf" value="{{ csrf_token }}">
                         <input type="hidden" name="autoselect_id" value="{{ auto.id }}">
-                        <button type="submit" class="mini danger" style="margin-top:22px;">Удалить</button>
+                        <button type="submit" class="mini danger" style="margin-top:22px;">Удалить профиль</button>
                     </form>
                     {% endif %}
                 </div>
             </div>
-            <p class="muted">ID: <code>{{ auto.id }}</code> &middot; стратегия: наименьшая задержка &middot; выбрано: {% if auto.tag_filter_count %}{{ auto.tag_filter_count }}{% else %}все{% endif %}</p>
+
+            <p class="muted" style="margin-top:8px;">ID: <code>{{ auto.id }}</code> &middot; стратегия: <code>leastPing</code> &middot; выбрано нод: {% if auto.tag_filter_count %}{{ auto.tag_filter_count }}{% else %}все{% endif %}</p>
+
             <div class="toolbar">
-                <label class="check">
-                    <input type="checkbox" name="mode_{{ auto.id }}" value="*" {% if not auto.tag_filter_count %}checked{% endif %}> Все ноды пользователя
+                <label class="check" style="cursor:pointer;">
+                    <input type="checkbox" name="mode_{{ auto.id }}" value="*" {% if not auto.tag_filter_count %}checked{% endif %}>
+                    <span>Все ноды пользователя</span>
                 </label>
-                <button class="mini" type="button" onclick="setTagChecks('{{ auto.id }}',true)">Выбрать все из каталога</button>
-                <button class="mini" type="button" onclick="setTagChecks('{{ auto.id }}',false)">Снять все</button>
+                <button class="mini secondary" type="button" onclick="setTagChecks('{{ auto.id }}',true)">Выбрать все из каталога</button>
+                <button class="mini secondary" type="button" onclick="setTagChecks('{{ auto.id }}',false)">Снять все</button>
             </div>
+
             <div class="checks">
                 {% if not catalog %}
-                <p class="muted">Сначала сделай discovery нод.</p>
+                <p class="muted">Сначала сделайте discovery нод выше.</p>
                 {% else %}
                 {% for n in catalog %}
                 <label class="check">
                     <input class="tagcheck" data-auto="{{ auto.id }}" type="checkbox" name="tag_{{ auto.id }}" value="{{ n.tag_or_name }}" {% if n.tag_or_name_lower in auto.tag_filter_names %}checked{% endif %}>
-                    <span><b>{{ n.name }}</b><br><span class="muted">{{ n.protocol }} {{ n.address }}:{{ n.port }}</span></span>
+                    <div>
+                        <div style="font-weight:600; color:#fff;">{{ n.name }}</div>
+                        <div class="muted" style="font-size:0.78rem;">{{ n.protocol }} &middot; {{ n.address }}:{{ n.port }}</div>
+                    </div>
                 </label>
                 {% endfor %}
                 {% endif %}
@@ -134,143 +155,102 @@
         </div>
         {% endfor %}
 
-        {% if message %}
-        <div style="background:#1b4332; color:#d8f3dc; border:1px solid #2d6a4f; padding:14px; margin-bottom:15px; border-radius:8px; font-weight:bold; font-size:1.1em; text-align:center;">
-            ✅ {{ message }}
+        <!-- Group Rules & Overrides -->
+        <div class="grid">
+            <div class="card">
+                <h2>Права групп (Доступ к балансировщикам)</h2>
+                <label>Формат: group = autoselect_id, autoselect_id</label>
+                <textarea name="group_rules">{{ rules_text }}</textarea>
+                <p class="muted">Пример: clients=main_auto и admins=main_auto,all_auto.</p>
+            </div>
+            <div class="card">
+                <h2>Ручные группы клиента (Override)</h2>
+                <label>Формат: email или subId = группы</label>
+                <textarea name="client_group_overrides">{{ overrides_text }}</textarea>
+                <p class="muted">Пример: test@example.com = admins, vip</p>
+            </div>
         </div>
-        {% endif %}
 
-        <button type="submit" style="margin-bottom: 20px; font-size:1.1em; padding:12px 24px;">💾 Сохранить все настройки</button>
+        <!-- Hidden submit for standard form submission -->
+        <input type="submit" style="display:none;">
     </form>
 
+    <!-- Create Balancer Card -->
     <div class="card">
         <h2>➕ Добавить новый балансировщик</h2>
         <form method="post" action="/admin/add-autoselect" class="toolbar">
             <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-            <input type="text" name="autoselect_id" placeholder="id (напр. de_auto)" style="width:200px" required>
-            <input type="text" name="name" placeholder="Имя (напр. 🇩🇪 Германия Авто)" style="width:300px" required>
-            <button type="submit">Создать профиль</button>
+            <input type="text" name="autoselect_id" placeholder="ID профиля (напр. de_auto)" style="width:220px;" required>
+            <input type="text" name="name" placeholder="Название (напр. 🇩🇪 Германия Авто)" style="width:300px;" required>
+            <button type="submit">Создать балансировщик</button>
         </form>
     </div>
 
+    <!-- Local Clients Table -->
     <div class="card">
-        <h2>Локальные группы клиентов</h2>
+        <h2>👥 Локальные группы клиентов</h2>
         <p class="muted">Группы, назначенные вручную через эту панель, имеют приоритет над API 3x-ui.</p>
-        <input type="text" id="searchLocalClients" onkeyup="filterTable('searchLocalClients', 'tableLocalClients')" placeholder="Поиск по sub_id, email или группам...">
-        <form method="post" action="/admin/set-client-group" class="toolbar">
+        <input type="text" id="searchLocalClients" onkeyup="filterTable('searchLocalClients', 'tableLocalClients')" placeholder="Поиск по sub_id, email или группам..." style="margin-bottom:12px;">
+
+        <form method="post" action="/admin/set-client-group" class="toolbar" style="margin-bottom:16px;">
             <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-            <input type="text" name="sub_id" placeholder="sub_id" style="width:200px">
-            <input type="text" name="email" placeholder="email (необяз.)" style="width:200px">
-            <input type="text" name="groups" placeholder="группы через запятую" style="width:250px">
-            <button type="submit">Назначить группы</button>
+            <input type="text" name="sub_id" placeholder="sub_id" style="width:200px;" required>
+            <input type="text" name="email" placeholder="email (опционально)" style="width:200px;">
+            <input type="text" name="groups" placeholder="группы через запятую (напр. vip, clients)" style="width:280px;" required>
+            <button type="submit">Сохранить клиента</button>
         </form>
+
         <table id="tableLocalClients">
             <thead>
-            <tr>
-                <th>Sub ID</th>
-                <th>Email</th>
-                <th>Группы</th>
-                <th></th>
-            </tr>
+                <tr>
+                    <th>sub_id</th>
+                    <th>Email</th>
+                    <th>Группы</th>
+                    <th>Действия</th>
+                </tr>
             </thead>
             <tbody>
-            {% for c in local_groups %}
-            <tr>
-                <td>{{ c.sub_id }}</td>
-                <td>{{ c.email }}</td>
-                <td>
-                    {% if c.groups %}
-                    {% for g in c.groups %}<span class="pill">{{ g }}</span>{% endfor %}
-                    {% else %}
-                    <span class="muted">нет</span>
-                    {% endif %}
-                </td>
-                <td>
-                    <form method="post" action="/admin/delete-client-group" style="display:inline">
-                        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-                        <input type="hidden" name="sub_id" value="{{ c.sub_id }}">
-                        <button class="mini danger">удалить</button>
-                    </form>
-                </td>
-            </tr>
-            {% else %}
-            <tr><td colspan="4" class="muted">Локальные группы не заданы</td></tr>
-            {% endfor %}
+                {% if not local_groups %}
+                <tr>
+                    <td colspan="4" class="muted" style="text-align:center;">Ручные назначения отсутствуют</td>
+                </tr>
+                {% else %}
+                {% for item in local_groups %}
+                <tr>
+                    <td><code>{{ item.sub_id }}</code></td>
+                    <td>{{ item.email or '-' }}</td>
+                    <td>
+                        {% for g in item.groups %}
+                        <span class="version-badge" style="background:rgba(59,130,246,0.1); border-color:rgba(59,130,246,0.3); color:#93c5fd;">{{ g }}</span>
+                        {% endfor %}
+                    </td>
+                    <td>
+                        <form method="post" action="/admin/delete-client-group" style="display:inline;" onsubmit="return confirm('Удалить назначение?');">
+                            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                            <input type="hidden" name="sub_id" value="{{ item.sub_id }}">
+                            <button type="submit" class="mini danger">Удалить</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% endif %}
             </tbody>
         </table>
     </div>
 
-    <div class="card">
-        <h2>Каталог нод</h2>
-        <input type="text" id="searchNodes" onkeyup="filterTable('searchNodes', 'tableNodes')" placeholder="Поиск по ноде, протоколу, адресу...">
-        <table id="tableNodes">
-            <thead>
-            <tr>
-                <th>Нода</th>
-                <th>Протокол</th>
-                <th>Адрес</th>
-                <th>Сеть</th>
-                <th>Security</th>
-                <th>Тэг</th>
-            </tr>
-            </thead>
-            <tbody>
-            {% for n in catalog %}
-            <tr>
-                <td><b>{{ n.name }}</b><br><span class="muted">{{ n.fingerprint }}</span></td>
-                <td>{{ n.protocol }}</td>
-                <td>{{ n.address }}:{{ n.port }}</td>
-                <td>{{ n.network }}</td>
-                <td>{{ n.security }}</td>
-                <td>{{ n.tag }}</td>
-            </tr>
-            {% else %}
-            <tr><td colspan="6" class="muted">Каталог пустой. Сделай discovery по подписке, где есть все нужные ноды.</td></tr>
-            {% endfor %}
-            </tbody>
-        </table>
-    </div>
+</div>
 
-    <div class="card">
-        <h2>Клиенты из 3x-ui</h2>
-        <input type="text" id="searchClients" onkeyup="filterTable('searchClients', 'tableClients')" placeholder="Поиск по email, sub_id или inbound...">
-        <table id="tableClients">
-            <thead>
-            <tr>
-                <th>Email</th>
-                <th>Sub ID</th>
-                <th>Группы</th>
-                <th>Inbound</th>
-            </tr>
-            </thead>
-            <tbody>
-            {% if not clients_error and grouped_clients %}
-            {% for c in grouped_clients %}
-            <tr>
-                <td>{{ c.email }}</td>
-                <td>{{ c.sub_id }}</td>
-                <td>
-                    {% if c.groups %}
-                    {% for g in c.groups %}<span class="pill">{{ g }}</span>{% endfor %}
-                    {% else %}
-                    <span class="muted">нет</span>
-                    {% endif %}
-                </td>
-                <td>
-                    {% if c.inbounds %}
-                    {% for ib in c.inbounds %}<span class="pill" style="background:transparent;border:1px solid #4a5568;color:#a0aec0;">{{ ib }}</span> {% endfor %}
-                    {% else %}
-                    <span class="muted">нет</span>
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-            {% else %}
-            <tr><td colspan="4" class="muted">{{ clients_error or 'Клиенты не найдены' }}</td></tr>
-            {% endif %}
-            </tbody>
-        </table>
+<!-- Sticky Bottom Save Bar -->
+<div class="sticky-bar">
+    <div class="sticky-bar-info" id="stickySaveStatus">
+        <span>● Все настройки сохранены</span>
+    </div>
+    <div>
+        <button type="button" class="save-btn-large" id="stickySaveBtn" onclick="document.getElementById('mainAdminForm').submit();">
+            💾 Сохранить изменения
+        </button>
     </div>
 </div>
+
 </body>
 </html>

@@ -1,24 +1,84 @@
-function setTagChecks(id, value) {
-  document.querySelectorAll('input.tagcheck[data-auto="'+id+'"]').forEach(function(el) { el.checked = value; });
+/* AutoSub Dashboard - Interactive JavaScript Controller */
+
+function showToast(message, type = 'success') {
+    if (!message) return;
+    
+    let container = document.getElementById('toastContainer');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toastContainer';
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+    
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    
+    const icon = type === 'success' ? '✅' : '⚠️';
+    
+    toast.innerHTML = `
+        <div class="toast-icon">${icon}</div>
+        <div class="toast-text">${message}</div>
+        <button type="button" class="toast-close" onclick="this.parentElement.remove()">&times;</button>
+    `;
+    
+    container.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.style.animation = 'toastFadeOut 0.4s forwards';
+        setTimeout(() => toast.remove(), 400);
+    }, 4500);
+}
+
+function setTagChecks(autoId, state) {
+    const checkboxes = document.querySelectorAll(`input.tagcheck[data-auto="${autoId}"]`);
+    checkboxes.forEach(cb => {
+        cb.checked = state;
+    });
+    markFormDirty();
 }
 
 function filterTable(inputId, tableId) {
-  var input, filter, table, tr, td, i, txtValue;
-  input = document.getElementById(inputId);
-  filter = input.value.toUpperCase();
-  table = document.getElementById(tableId);
-  tr = table.getElementsByTagName("tr");
-  for (i = 1; i < tr.length; i++) {
-    tr[i].style.display = "none";
-    td = tr[i].getElementsByTagName("td");
-    for (var j = 0; j < td.length; j++) {
-      if (td[j]) {
-        txtValue = td[j].textContent || td[j].innerText;
-        if (txtValue.toUpperCase().indexOf(filter) > -1) {
-          tr[i].style.display = "";
-          break;
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    const filter = input.value.toLowerCase();
+    const table = document.getElementById(tableId);
+    if (!table) return;
+    const trs = table.getElementsByTagName('tr');
+    
+    for (let i = 1; i < trs.length; i++) {
+        const tr = trs[i];
+        const text = tr.textContent || tr.innerText;
+        if (text.toLowerCase().indexOf(filter) > -1) {
+            tr.style.display = '';
+        } else {
+            tr.style.display = 'none';
         }
-      }
     }
-  }
 }
+
+function markFormDirty() {
+    const statusText = document.getElementById('stickySaveStatus');
+    const saveBtn = document.getElementById('stickySaveBtn');
+    if (statusText) {
+        statusText.innerHTML = '<span style="color:#f59e0b;">● Есть несохраненные изменения</span>';
+    }
+    if (saveBtn) {
+        saveBtn.style.boxShadow = '0 0 25px rgba(245, 158, 11, 0.5)';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Check for server flash message
+    const msgElement = document.getElementById('serverFlashMessage');
+    if (msgElement && msgElement.dataset.message) {
+        showToast(msgElement.dataset.message, 'success');
+    }
+    
+    // Listen for form changes
+    const mainForm = document.getElementById('mainAdminForm');
+    if (mainForm) {
+        mainForm.addEventListener('change', markFormDirty);
+        mainForm.addEventListener('input', markFormDirty);
+    }
+});
