@@ -186,11 +186,95 @@
         </form>
     </div>
 
+    <!-- All Synced Clients Table -->
+    <div class="card">
+        <h2>👥 Все клиенты панели (3x-ui API + Ручные назначения)</h2>
+        <p class="muted">Полный список клиентов из 3x-ui и их итоговые группы (с учетом переопределений).</p>
+        {% if clients_error %}
+        <div class="muted" style="color:#fca5a5; margin-bottom:10px;">⚠️ Ошибка получения клиентов из API 3x-ui: {{ clients_error }}</div>
+        {% endif %}
+
+        <input type="text" id="searchAllClients" onkeyup="filterTable('searchAllClients', 'tableAllClients')" placeholder="Поиск по sub_id, email или группам..." style="margin-bottom:12px;">
+
+        <table id="tableAllClients">
+            <thead>
+                <tr>
+                    <th>sub_id</th>
+                    <th>Email</th>
+                    <th>Итоговые группы</th>
+                    <th>Inbounds</th>
+                    <th>Просмотр подписки</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if not grouped_clients %}
+                <tr>
+                    <td colspan="5" class="muted" style="text-align:center;">Клиенты не найдены или 3x-ui API недоступен</td>
+                </tr>
+                {% else %}
+                {% for item in grouped_clients %}
+                <tr>
+                    <td><code>{{ item.sub_id or '-' }}</code></td>
+                    <td><b>{{ item.email or '-' }}</b></td>
+                    <td>
+                        {% if not item.groups %}
+                        <span class="muted">нет групп</span>
+                        {% else %}
+                        {% for g in item.groups %}
+                        <span class="version-badge" style="background:rgba(59,130,246,0.15); border-color:rgba(59,130,246,0.3); color:#93c5fd; margin-right:4px;">{{ g }}</span>
+                        {% endfor %}
+                        {% endif %}
+                    </td>
+                    <td class="muted" style="font-size:0.8rem;">
+                        {{ item.inbounds | join(', ') if item.inbounds else '-' }}
+                    </td>
+                    <td>
+                        {% if item.sub_id %}
+                        <a href="/json/{{ item.sub_id }}" target="_blank" class="btn secondary mini">🔗 JSON link</a>
+                        {% else %}
+                        <span class="muted">-</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Standalone Server Nodes Catalog -->
+    <div class="card">
+        <h2>📡 Каталог серверов и нод</h2>
+        <p class="muted">Все серверы, обнаруженные в подписке (дискавери). Используются балансировщиками автовыбора.</p>
+
+        {% if not catalog %}
+        <p class="muted">Каталог пуст. Запустите discovery в блоке выше.</p>
+        {% else %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Название ноды</th>
+                    <th>Протокол</th>
+                    <th>Адрес и Порт</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for n in catalog %}
+                <tr>
+                    <td><b>{{ n.name }}</b></td>
+                    <td><span class="version-badge" style="background:rgba(20,184,166,0.15); border-color:rgba(20,184,166,0.3); color:#2dd4bf;">{{ n.protocol }}</span></td>
+                    <td><code>{{ n.address }}:{{ n.port }}</code></td>
+                </tr>
+                {% endfor %}
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
     <!-- Local Clients Table -->
     <div class="card">
-        <h2>👥 Локальные группы клиентов</h2>
+        <h2>➕ Назначить группу клиенту вручную</h2>
         <p class="muted">Группы, назначенные вручную через эту панель, имеют приоритет над API 3x-ui.</p>
-        <input type="text" id="searchLocalClients" onkeyup="filterTable('searchLocalClients', 'tableLocalClients')" placeholder="Поиск по sub_id, email или группам..." style="margin-bottom:12px;">
 
         <form method="post" action="/admin/set-client-group" class="toolbar" style="margin-bottom:16px;">
             <input type="hidden" name="_csrf" value="{{ csrf_token }}">
