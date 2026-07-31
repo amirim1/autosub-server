@@ -176,9 +176,19 @@ async def handle_json_route(sub_id: str, request: Request):
         query = request.url.query
         output, ctype, sub_headers = await build_for_subscription(sub_id, storage, query=query)
         
+        SKIP_HEADERS = {
+            "content-length",
+            "content-encoding",
+            "transfer-encoding",
+            "connection",
+            "keep-alive",
+            "server",
+            "date",
+            "content-type",
+        }
         headers = {"Cache-Control": "no-store"}
         for key, val in sub_headers.items():
-            if not val:
+            if not val or key.lower() in SKIP_HEADERS:
                 continue
             header_val = str(val)
             if key.lower() == "profile-title" and not header_val.startswith("base64:"):

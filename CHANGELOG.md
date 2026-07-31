@@ -5,6 +5,7 @@ All notable changes to AutoSub Server will be documented in this file.
 ## [v1.1.2] - 2026-07-31
 
 ### Fixed
+- **Socket Closed / Subscription Refresh Error**: Fixed connection drop and "Socket closed" error on repeated updates by stripping upstream transport headers (`Content-Length`, `Transfer-Encoding`, `Connection`, `Keep-Alive`) that caused response truncation and broken HTTP keep-alive sockets.
 - **Happ Proxy / v2rayNG Compatibility**: Fixed TCP Ping and Latency check failure (infinite spinner) for JSON subscriptions.
 - **Outbound Normalization**: Automatic conversion of flat `settings` into canonical Xray Core `vnext` (VLESS/VMess) and `servers` (Trojan) structures.
 - **Xray Core Schema**: Added standard `inbounds` and `routing` sections to each profile object for full `libXray` test compatibility.
