@@ -51,39 +51,80 @@ def build_autoselect_profile(template_profile, selected_profiles, autoselect, pr
 
     result["dns"] = {
         "servers": [
+            "77.88.8.8",
             "1.1.1.1",
             "8.8.8.8",
-            "https://dns.google/dns-query",
-            "localhost",
-        ]
+        ],
+        "queryStrategy": "UseIP",
     }
     result["inbounds"] = [
         {
-            "listen": "127.0.0.1",
+            "tag": "socks",
             "port": 10808,
+            "listen": "127.0.0.1",
             "protocol": "socks",
             "settings": {"auth": "noauth", "udp": True},
             "sniffing": {
-                "destOverride": ["http", "tls", "quic"],
                 "enabled": True,
-                "metadataOnly": False,
+                "routeOnly": False,
+                "destOverride": ["http", "tls", "quic"],
             },
-            "tag": "socks",
-        }
+        },
+        {
+            "tag": "http",
+            "port": 10809,
+            "listen": "127.0.0.1",
+            "protocol": "http",
+            "settings": {"allowTransparent": False},
+            "sniffing": {
+                "enabled": True,
+                "routeOnly": False,
+                "destOverride": ["http", "tls", "quic"],
+            },
+        },
     ]
     result["outbounds"] = selected_outbounds + [_direct_outbound(), _block_outbound()]
     result["observatory"] = {
-        "subjectSelector": tags,
+        "subjectSelector": tags[:],
         "probeUrl": probe_url,
         "probeInterval": probe_interval,
         "enableConcurrency": True,
     }
+    result["burstObservatory"] = {
+        "pingConfig": {
+            "timeout": "3s",
+            "interval": "45s",
+            "sampling": 3,
+            "destination": probe_url,
+            "connectivity": "",
+        },
+        "subjectSelector": tags[:],
+    }
+
+    ru_bypass_domains = [
+        "domain:max.ru", "domain:2gis.ru", "domain:2gis.com", "domain:aif.ru",
+        "domain:aeroflot.ru", "domain:alfabank.ru", "domain:avito.ru", "domain:beeline.ru",
+        "domain:burgerkingrus.ru", "domain:dellin.ru", "domain:drive2.ru", "domain:dzen.ru",
+        "domain:flypobeda.ru", "domain:forbes.ru", "domain:gazeta.ru", "domain:gazprombank.ru",
+        "domain:gismeteo.ru", "domain:gosuslugi.ru", "domain:hh.ru", "domain:kontur.ru",
+        "domain:kp.ru", "domain:kuper.ru", "domain:lenta.ru", "domain:mail.ru",
+        "domain:megamarket.ru", "domain:megafon.ru", "domain:moex.com", "domain:ozon.ru",
+        "domain:psbank.ru", "domain:rambler.ru", "domain:rbc.ru", "domain:reg.ru",
+        "domain:rg.ru", "domain:ria.ru", "domain:rustore.ru", "domain:rutube.ru",
+        "domain:rzd.ru", "domain:sravni.ru", "domain:t2.ru", "domain:tbank-online.com",
+        "domain:tutu.ru", "domain:vk.com", "domain:vk.ru", "domain:vkvideo.ru",
+        "domain:vtb.ru", "domain:ya.ru", "domain:yandex.ru", "domain:yandex.net",
+        "domain:yastatic.net", "full:go.yandex"
+    ]
+
     result["routing"] = {
         "domainMatcher": "hybrid",
         "domainStrategy": "IPIfNonMatch",
         "rules": [
-            {"type": "field", "port": "53", "network": "udp", "balancerTag": name},
+            {"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"},
             {"type": "field", "protocol": ["bittorrent"], "outboundTag": "block"},
+            {"type": "field", "port": "443", "network": "udp", "outboundTag": "block"},
+            {"type": "field", "domain": ru_bypass_domains, "outboundTag": "direct"},
             {"type": "field", "network": "tcp,udp", "balancerTag": name},
         ],
         "balancers": [
@@ -93,11 +134,6 @@ def build_autoselect_profile(template_profile, selected_profiles, autoselect, pr
                 "fallbackTag": tags[0] if tags else "",
                 "strategy": {
                     "type": "leastPing",
-                    "settings": {
-                        "expected": 1,
-                        "maxRTT": "10000ms",
-                        "tolerance": 0.3,
-                    },
                 },
             }
         ],
@@ -106,7 +142,7 @@ def build_autoselect_profile(template_profile, selected_profiles, autoselect, pr
 
 
 def _direct_outbound():
-    return {"protocol": "freedom", "settings": {"domainStrategy": "AsIs"}, "tag": "direct"}
+    return {"protocol": "freedom", "settings": {"domainStrategy": "UseIP"}, "tag": "direct"}
 
 
 def _block_outbound():
