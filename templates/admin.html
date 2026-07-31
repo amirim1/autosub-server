@@ -64,13 +64,13 @@
             <div class="grid">
                 <div>
                     <label>Группы / Email для Hide-Settings (скрытие конфига в приложении)</label>
-                    <input type="text" name="security_hide_groups" value="{{ sec_hide_text }}" placeholder="* или group1,group2">
-                    <p class="muted">Укажите <b>*</b> (для всех) или список групп через запятую. Клиенты с этой настройкой не смогут просматривать IP/порты в Happ/v2rayNG.</p>
+                    <input type="text" name="security_hide_groups" value="{{ sec_hide_text }}" placeholder="*">
+                    <p class="muted">Напишите <b>*</b> (для всех пользователей) или список групп через запятую (напр. <code>clients, default</code>). Блокирует просмотр IP/портов в приложении.</p>
                 </div>
                 <div>
-                    <label>Группы / Email для шифрования Happ</label>
-                    <input type="text" name="security_happ_groups" value="{{ sec_happ_text }}" placeholder="group1, group2">
-                    <p class="muted">Группы или e-mail, которым отсылается зашифрованная подписка Happ.</p>
+                    <label>Группы / Email для шифрования Happ (Base64 Payload)</label>
+                    <input type="text" name="security_happ_groups" value="{{ sec_happ_text }}" placeholder="*">
+                    <p class="muted">Напишите <b>*</b> (для всех клиентов Happ) или список групп через запятую. Зашифровывает подписку в нечитаемый формат.</p>
                 </div>
             </div>
         </div>
@@ -134,7 +134,13 @@
         </div>
         {% endfor %}
 
-        <button type="submit" style="margin-bottom: 20px;">Сохранить настройки</button>
+        {% if message %}
+        <div style="background:#1b4332; color:#d8f3dc; border:1px solid #2d6a4f; padding:14px; margin-bottom:15px; border-radius:8px; font-weight:bold; font-size:1.1em; text-align:center;">
+            ✅ {{ message }}
+        </div>
+        {% endif %}
+
+        <button type="submit" style="margin-bottom: 20px; font-size:1.1em; padding:12px 24px;">💾 Сохранить все настройки</button>
     </form>
 
     <div class="card">

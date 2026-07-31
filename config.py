@@ -3,7 +3,7 @@ from pathlib import Path
 from logger import logger
 
 
-VERSION = "1.3.1"
+VERSION = "1.3.2"
 
 DEFAULT_APP_DIR = Path("/opt/autosub-server")
 if not DEFAULT_APP_DIR.exists():

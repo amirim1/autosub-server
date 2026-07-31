@@ -2,6 +2,14 @@
 
 All notable changes to AutoSub Server will be documented in this file.
 
+## [v1.3.2] - 2026-07-31
+
+### Added
+- **Happ Payload Base64 Subscription Encoding**: Encodes subscription payload into Base64 for Happ requests when `happ_encrypt` or `hide_settings` is enabled. Forces Happ to lock node config cards in Happ UI.
+- **Save Confirmation Banner & UI Clarity**: Added a green save notification banner directly above the save button in the Admin Dashboard and simplified Security Rules placeholders (`*` for all clients).
+
+---
+
 ## [v1.3.1] - 2026-07-31
 
 ### Fixed

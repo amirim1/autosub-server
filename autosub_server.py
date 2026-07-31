@@ -212,6 +212,10 @@ async def handle_json_route(sub_id: str, request: Request):
             headers["Hide-User-Info"] = "true"
             headers["hide-user-info"] = "true"
 
+        if sec_flags.get("happ_encrypt") or (sec_flags.get("hide_settings") and "happ" in user_agent):
+            encoded_bytes = base64.b64encode(output.encode("utf-8"))
+            return Response(content=encoded_bytes, media_type="text/plain; charset=utf-8", headers=headers)
+
         return Response(content=output.encode("utf-8"), media_type=media_type, headers=headers)
     except Exception as e:
         logger.error(f"Error in JSON route: {e}\n{traceback.format_exc()}")
