@@ -17,7 +17,7 @@ from config import APP_DIR, CONFIG_PATH, DB_PATH, ensure_app_dir, env_get, load_
 from logger import logger
 from storage import Storage
 from api_client import fetch_original_sub_html
-from builder import build_for_subscription, discover_nodes_from_sub_id, resolve_security_flags, encrypt_happ_crypt4
+from builder import build_for_subscription, discover_nodes_from_sub_id, resolve_security_flags
 from dashboard import (
     render_admin,
     render_api_test,
@@ -212,13 +212,9 @@ async def handle_json_route(sub_id: str, request: Request):
             headers["Hide-User-Info"] = "true"
             headers["hide-user-info"] = "true"
 
-        if sec_flags.get("happ_encrypt") or (sec_flags.get("hide_settings") and ("happ" in user_agent or "happ" in accept_header)):
-            crypt4_payload = encrypt_happ_crypt4(output)
-            headers["Happ-Encrypt"] = "crypt4"
-            headers["happ-encrypt"] = "crypt4"
-            headers["X-Happ-Encrypt"] = "crypt4"
-            headers["x-happ-encrypt"] = "crypt4"
-            return Response(content=crypt4_payload.encode("utf-8"), media_type="text/plain; charset=utf-8", headers=headers)
+        if sec_flags.get("happ_encrypt"):
+            headers["Happ-Encrypt"] = "true"
+            headers["happ-encrypt"] = "true"
 
         return Response(content=output.encode("utf-8"), media_type=media_type, headers=headers)
     except Exception as e:
