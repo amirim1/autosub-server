@@ -4,7 +4,6 @@ import ipaddress
 import os
 import secrets
 import time
-import traceback
 from collections import defaultdict
 from contextlib import asynccontextmanager
 
@@ -16,6 +15,8 @@ import uvicorn
 
 from config import APP_DIR, CONFIG_PATH, DB_PATH, ensure_app_dir, env_get, load_config, VERSION
 from logger import logger
+from logging_utils import fingerprint_secret
+from http_security import RequestContextMiddleware, json_error, plain_error
 from storage import Storage
 from api_client import close_xui_api, fetch_original_sub_html
 from builder import build_for_subscription, discover_nodes_from_sub_id, resolve_security_flags
@@ -141,6 +142,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(RequestContextMiddleware)
 
 # Mount static files securely
 static_dir = APP_DIR / "static"
@@ -244,10 +246,15 @@ async def handle_json_route(sub_id: str, request: Request):
     client_ip = _client_ip(request)
 
     if not _check_rate_limit(client_ip):
-        logger.warning(f"Rate limit exceeded for IP: {client_ip} on sub_id: {sub_id}")
-        return JSONResponse(
-            status_code=429,
-            content={"error": "Too Many Requests", "detail": "Rate limit exceeded. Please try again later."},
+        logger.warning(
+            "Rate limit exceeded for IP: %s sub_id_hash=%s",
+            client_ip,
+            fingerprint_secret(sub_id),
+        )
+        return json_error(
+            "Too Many Requests",
+            429,
+            detail="Rate limit exceeded. Please try again later.",
         )
 
     # Detect if request is coming from a web browser (e.g., Chrome/Firefox opening /sub/ link)
@@ -263,7 +270,11 @@ async def handle_json_route(sub_id: str, request: Request):
             html_content, ctype, status_code = await fetch_original_sub_html(sub_id, request.headers)
             return HTMLResponse(content=html_content, status_code=status_code)
         except Exception as err:
-            logger.warning(f"Failed to proxy HTML landing page from 3x-ui for sub_id {sub_id}: {err}")
+            logger.warning(
+                "Failed to proxy upstream HTML sub_id_hash=%s error_type=%s",
+                fingerprint_secret(sub_id),
+                type(err).__name__,
+            )
 
     try:
         query = request.url.query
@@ -300,9 +311,12 @@ async def handle_json_route(sub_id: str, request: Request):
             headers["hide-settings"] = "1"
 
         return Response(content=output.encode("utf-8"), media_type=media_type, headers=headers)
-    except Exception as e:
-        logger.error(f"Error in JSON route: {e}\n{traceback.format_exc()}")
-        return JSONResponse(status_code=500, content={"error": "Internal server error"})
+    except Exception:
+        logger.exception(
+            "Subscription generation failed sub_id_hash=%s",
+            fingerprint_secret(sub_id),
+        )
+        return json_error("Internal server error", 500)
 
 
 @app.get("/admin", dependencies=[Depends(verify_admin)])
@@ -320,7 +334,7 @@ async def admin_preview(request: Request, sub_id: str = ""):
         return await render_preview(request, storage, sub_id)
     except Exception:
         logger.exception("Admin preview generation failed")
-        return PlainTextResponse("Preview generation failed", status_code=500)
+        return plain_error("Preview generation failed", 500)
 
 
 @app.get("/admin/api-test", dependencies=[Depends(verify_admin)])
@@ -333,13 +347,13 @@ async def admin_api_test():
 async def admin_debug(sub_id: str = ""):
     sub_id = sub_id.strip()
     if not sub_id:
-        return JSONResponse(status_code=400, content={"error": "sub_id is required"})
+        return json_error("sub_id is required", 400)
     try:
         content = await render_debug(storage, sub_id)
         return Response(content=content, media_type="application/json; charset=utf-8")
     except Exception:
         logger.exception("Admin debug generation failed")
-        return JSONResponse(status_code=500, content={"error": "Debug generation failed"})
+        return json_error("Debug generation failed", 500)
 
 
 @app.post("/admin/save", dependencies=[Depends(verify_admin)])
@@ -373,7 +387,7 @@ async def admin_save(request: Request):
         return RedirectResponse(url="/admin?msg=Настройки+успешно+сохранены", status_code=303)
     except Exception:
         logger.exception("Admin settings save failed")
-        return PlainTextResponse("Settings save failed", status_code=500)
+        return plain_error("Settings save failed", 500)
 
 
 @app.post("/admin/discover", dependencies=[Depends(verify_admin)])
@@ -389,7 +403,7 @@ async def admin_discover(request: Request, sub_id: str = Form(""), csrf: str = F
         return RedirectResponse(url=f"/admin?msg=Каталог+успешно+обновлен:+{len(nodes)}+нод", status_code=303)
     except Exception:
         logger.exception("Admin node discovery failed")
-        return PlainTextResponse("Node discovery failed", status_code=500)
+        return plain_error("Node discovery failed", 500)
 
 
 @app.post("/admin/set-client-group", dependencies=[Depends(verify_admin)])
@@ -433,7 +447,7 @@ async def admin_add_autoselect(
             return RedirectResponse(url=f"/admin?msg=Балансировщик+{name}+успешно+создан", status_code=303)
         except Exception:
             logger.exception("Admin autoselect creation failed")
-            return PlainTextResponse("Autoselect creation failed", status_code=500)
+            return plain_error("Autoselect creation failed", 500)
     return RedirectResponse(url="/admin", status_code=303)
 
 
@@ -451,14 +465,21 @@ async def admin_delete_autoselect(
             return RedirectResponse(url="/admin?msg=Балансировщик+удален", status_code=303)
         except Exception:
             logger.exception("Admin autoselect deletion failed")
-            return PlainTextResponse("Autoselect deletion failed", status_code=500)
+            return plain_error("Autoselect deletion failed", 500)
     return RedirectResponse(url="/admin", status_code=303)
 
 
 def main():
     host = env_get("AUTOSUB_HOST", "127.0.0.1")
     port = int(env_get("AUTOSUB_PORT", "25500"))
-    uvicorn.run("autosub_server:app", host=host, port=port, log_level="info")
+    uvicorn.run(
+        "autosub_server:app",
+        host=host,
+        port=port,
+        log_level="info",
+        access_log=False,
+        server_header=False,
+    )
 
 if __name__ == "__main__":
     main()

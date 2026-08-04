@@ -4,6 +4,8 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import os
 
+from logging_utils import RequestContextRedactionFilter
+
 # Define log path directly to avoid circular dependency with config.py
 DEFAULT_APP_DIR = Path("/opt/autosub-server")
 if not DEFAULT_APP_DIR.exists():
@@ -23,7 +25,14 @@ def setup_logger():
     _logger = logging.getLogger("autosub")
     _logger.setLevel(logging.INFO)
 
-    formatter = logging.Formatter('[%(asctime)s] %(levelname)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    formatter = logging.Formatter(
+        '[%(asctime)s] %(levelname)s [request_id=%(request_id)s]: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+    )
+    if not any(
+        isinstance(item, RequestContextRedactionFilter) for item in _logger.filters
+    ):
+        _logger.addFilter(RequestContextRedactionFilter())
 
     # File handler with rotation
     try:

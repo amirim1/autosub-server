@@ -4,6 +4,8 @@ All notable changes to AutoSub Server will be documented in this file.
 
 ## [v2.1.0] - 2026-07-31
 
+2026-08-04: Добавить request ID, редактирование чувствительных логов и security headers - ошибки сопоставимы без утечки subscription ID, email и upstream secrets (завершено).
+
 2026-08-01: Исправить ложную поддержку шифрования Happ в `autosub_server.py`, `builder.py` и админке - удалены недокументированные заголовки и поля payload, обычная JSON-подписка больше не заявляется как зашифрованная (завершено).
 
 ### Fixed

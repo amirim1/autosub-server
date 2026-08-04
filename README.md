@@ -198,6 +198,18 @@ ssh -L 25500:127.0.0.1:25500 root@YOUR_SERVER_IP
 
 После создания туннеля откройте в браузере: `http://127.0.0.1:25500/admin`
 
+### Диагностика и безопасные HTTP-ответы
+
+Каждый ответ AutoSub содержит `X-Request-ID`. Тот же идентификатор добавляется в
+связанные записи `autosub.log` и journald, поэтому его можно использовать для поиска
+ошибки без публикации внутренних деталей. Subscription ID журналируются только как
+необратимые fingerprints, а email маскируются. Ответы также получают базовые security
+headers; административные страницы используют `Cache-Control: no-store`.
+
+Все управляемые AutoSub файлы должны оставаться внутри `/opt/autosub-server`: код,
+`.env`, SQLite, лог, venv и будущие резервные копии. Для будущей release-структуры
+резервные копии предназначены для `/opt/autosub-server/shared/backups/`.
+
 ### Приоритет назначения групп клиентам:
 
 1. **Локальная SQLite БД (`client_groups`)** — ручное и самое стабильное назначение через админ-панель.
@@ -270,7 +282,9 @@ systemctl reload nginx
 curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/update.sh | bash
 ```
 
-При обновлении создается автоматическая резервная копия базы данных и конфигурации в `/opt/autosub-server-backups/`.
+Updater и будущая release-структура будут переведены на резервные копии внутри
+`/opt/autosub-server/shared/backups/`; до завершения этого этапа проверяйте backup
+вручную перед обновлением.
 
 ---
 

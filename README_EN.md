@@ -166,6 +166,18 @@ ssh -L 25500:127.0.0.1:25500 root@YOUR_SERVER_IP
 
 Then open in your browser: `http://127.0.0.1:25500/admin`
 
+### Diagnostics and safe HTTP responses
+
+Every AutoSub response includes `X-Request-ID`. The same identifier is attached to
+related `autosub.log` and journald records, so operators can correlate failures without
+exposing internal details. Subscription IDs are logged only as irreversible
+fingerprints, and email addresses are masked. Responses also receive baseline security
+headers; administrative pages use `Cache-Control: no-store`.
+
+All AutoSub-managed files must remain under `/opt/autosub-server`: code, `.env`,
+SQLite, logs, the venv, and future backups. The future release layout reserves
+`/opt/autosub-server/shared/backups/` for backups.
+
 ### Client Group Resolution Priority:
 
 1. **Local SQLite (`client_groups`)** — Manual and most stable assignment via dashboard.
@@ -238,7 +250,9 @@ systemctl reload nginx
 curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/update.sh | bash
 ```
 
-Updates automatically create a backup of your database and configuration in `/opt/autosub-server-backups/`.
+The updater and future release layout will move backups under
+`/opt/autosub-server/shared/backups/`; until that stage is complete, verify a backup
+manually before updating.
 
 ---
 

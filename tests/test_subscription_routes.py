@@ -94,7 +94,10 @@ def test_json_route_returns_safe_500_for_upstream_failure(client, monkeypatch):
     response = client.get("/json/missing")
 
     assert response.status_code == 500
-    assert response.json() == {"error": "Internal server error"}
+    assert response.json() == {
+        "error": "Internal server error",
+        "request_id": response.headers["x-request-id"],
+    }
     assert "upstream" not in response.text
     assert "traceback" not in response.text.lower()
 

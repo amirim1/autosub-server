@@ -204,7 +204,10 @@ def test_admin_debug_error_is_generic_json(client, monkeypatch, caplog):
     response = client.get("/admin/debug?sub_id=test")
 
     assert response.status_code == 500
-    assert response.json() == {"error": "Debug generation failed"}
+    assert response.json() == {
+        "error": "Debug generation failed",
+        "request_id": response.headers["x-request-id"],
+    }
     assert secret not in response.text
     assert "Admin debug generation failed" in caplog.text
 

@@ -88,10 +88,13 @@ def test_public_error_hides_details_but_traceback_is_logged(
     response = client.get("/json/public-error")
 
     assert response.status_code == 500
-    assert response.json() == {"error": "Internal server error"}
+    assert response.json() == {
+        "error": "Internal server error",
+        "request_id": response.headers["x-request-id"],
+    }
     assert secret not in response.text
     assert "Traceback" not in response.text
-    assert secret in caplog.text
+    assert secret not in caplog.text
     assert "Traceback" in caplog.text
 
 
@@ -113,16 +116,14 @@ def test_admin_preview_hides_exception_details(client, monkeypatch, caplog, deta
     response = client.get("/admin/preview?sub_id=test")
 
     assert response.status_code == 500
-    assert response.text == "Preview generation failed"
+    assert response.text == (
+        f"Preview generation failed. Request ID: {response.headers['x-request-id']}"
+    )
     assert detail not in response.text
     assert "Admin preview generation failed" in caplog.text
     assert "Traceback" in caplog.text
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Known issue: rate-limit warning logs the complete subscription ID",
-)
 def test_subscription_logs_do_not_include_full_sub_id(client, monkeypatch, caplog):
     sub_id = "full-sensitive-subscription-id-123456"
     monkeypatch.setattr(autosub_server, "_check_rate_limit", lambda ip: False)
@@ -133,12 +134,9 @@ def test_subscription_logs_do_not_include_full_sub_id(client, monkeypatch, caplo
 
     assert response.status_code == 429
     assert sub_id not in caplog.text
+    assert "sub_id_hash=sha256:" in caplog.text
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Known issue: subscription builder logs the complete client email",
-)
 def test_subscription_logs_do_not_include_client_email(monkeypatch):
     email = "sensitive-client@example.test"
     raw_subscription = json.dumps(
@@ -262,7 +260,9 @@ def test_admin_action_errors_are_generic(client, monkeypatch, caplog):
     ]
     for response, message in expected:
         assert response.status_code == 500
-        assert response.text == message
+        assert response.text == (
+            f"{message}. Request ID: {response.headers['x-request-id']}"
+        )
         assert secret not in response.text
 
     assert "Admin settings save failed" in caplog.text
