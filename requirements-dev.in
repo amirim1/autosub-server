@@ -1,0 +1,14 @@
+-r requirements.in
+
+# pip-tools 7.6.0 imports a pip API removed in pip 26.2.
+pip<26.2
+# stevedore 5.9+ requires Python 3.11, while CI includes Python 3.10.
+stevedore<5.9
+pytest
+pytest-asyncio
+pytest-cov
+ruff
+pyright
+bandit
+pip-audit
+pip-tools

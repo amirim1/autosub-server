@@ -1,6 +1,6 @@
 # AutoSub Server
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **AutoSub Server** is a local JSON subscription proxy for the **3x-ui** panel.
@@ -24,6 +24,7 @@ For legacy `/sub/<subId>` URLs, it automatically differentiates requests: web br
 - [Dashboard & Management](#-dashboard--management)
 - [Nginx Setup](#-nginx-setup)
 - [Updating](#-updating)
+- [Development and Dependencies](#-development-and-reproducible-dependencies)
 - [Troubleshooting](#-troubleshooting)
 
 ---
@@ -90,7 +91,7 @@ Requires a server running Ubuntu/Debian.
    ```
 
 3. **Run the installation script:**
-   This script creates a Python virtual environment, installs dependencies (Aiohttp, etc.), and sets up the `systemd` service.
+   This script creates a Python virtual environment, installs locked Python dependencies, and sets up the `systemd` service.
    ```bash
    bash install.sh
    ```
@@ -234,6 +235,44 @@ curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/update.
 ```
 
 Updates automatically create a backup of your database and configuration in `/opt/autosub-server-backups/`.
+
+---
+
+## 🧰 Development and Reproducible Dependencies
+
+Python 3.10 or newer is supported. Install production dependencies from the lock file:
+
+```bash
+python -m pip install --require-hashes -r requirements.txt
+```
+
+Use a separate virtual environment and the development lock for local work:
+
+```bash
+python -m venv .venv
+python -m pip install --require-hashes -r requirements-dev.txt
+```
+
+Run the project checks with:
+
+```bash
+pytest
+pytest --cov=. --cov-report=term-missing --cov-fail-under=55
+ruff check .
+ruff format --check .
+pyright
+pip-audit -r requirements.txt --require-hashes
+bandit -c pyproject.toml -r . -x tests -ll
+```
+
+`ruff format --check .` is currently a diagnostic local check. The existing code does not yet have a single formatter baseline, so CI defers it to a dedicated formatting PR.
+
+After editing `requirements.in` or `requirements-dev.in`, rebuild both locks from a clean development environment:
+
+```bash
+python -m piptools compile --upgrade --generate-hashes --resolver=backtracking --strip-extras --no-emit-index-url --output-file=requirements.txt requirements.in
+python -m piptools compile --upgrade --generate-hashes --resolver=backtracking --strip-extras --no-emit-index-url --allow-unsafe --output-file=requirements-dev.txt requirements-dev.in
+```
 
 ---
 

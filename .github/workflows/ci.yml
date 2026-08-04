@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Prepare pip
+        run: python -m pip install --upgrade "pip<26.2"
+      - name: Install locked dependencies
+        run: python -m pip install --require-hashes -r requirements-dev.txt
+      - name: Run tests with branch coverage
+        run: python -m pytest --cov=. --cov-report=term-missing --cov-fail-under=55
+
+  lint-and-types:
+    name: Lint and types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Prepare pip
+        run: python -m pip install --upgrade "pip<26.2"
+      - name: Install locked dependencies
+        run: python -m pip install --require-hashes -r requirements-dev.txt
+      - name: Ruff
+        run: ruff check .
+      # Full formatter enforcement is deferred: the legacy baseline would
+      # reformat 19 production/test files outside this PR's scope.
+      - name: Pyright
+        run: pyright
+
+  security:
+    name: Dependency and source security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Prepare pip
+        run: python -m pip install --upgrade "pip<26.2"
+      - name: Install locked dependencies
+        run: python -m pip install --require-hashes -r requirements-dev.txt
+      - name: Audit runtime lock
+        run: pip-audit -r requirements.txt --require-hashes
+      - name: Bandit
+        run: bandit -c pyproject.toml -r . -x tests -ll
+
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes shellcheck
+      - name: Check deployment scripts
+        run: shellcheck install.sh update.sh setup_nginx.sh

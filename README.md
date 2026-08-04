@@ -1,6 +1,6 @@
 # AutoSub Server
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **AutoSub Server** — это локальный прокси-сервер JSON-подписок для панели **3x-ui**.
@@ -33,6 +33,7 @@
 - [Панель управления (Dashboard)](#-панель-управления-dashboard)
 - [Настройка Nginx](#-настройка-nginx)
 - [Обновление](#-обновление)
+- [Разработка и зависимости](#-разработка-и-воспроизводимые-зависимости)
 - [Устранение неполадок](#-устранение-неполадок)
 
 ---
@@ -99,7 +100,7 @@ curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/dev/install.
    ```
 
 3. **Запуск скрипта установки:**
-   Этот скрипт создаст виртуальное окружение, установит Python-зависимости (Aiohttp и др.) и настроит системный сервис `systemd`.
+   Этот скрипт создаст виртуальное окружение, установит зафиксированные Python-зависимости и настроит системный сервис `systemd`.
    ```bash
    bash install.sh
    ```
@@ -267,6 +268,44 @@ curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/update.
 ```
 
 При обновлении создается автоматическая резервная копия базы данных и конфигурации в `/opt/autosub-server-backups/`.
+
+---
+
+## 🧰 Разработка и воспроизводимые зависимости
+
+Поддерживается Python 3.10 и новее. Установка production-зависимостей из lock-файла:
+
+```bash
+python -m pip install --require-hashes -r requirements.txt
+```
+
+Для разработки используйте отдельное виртуальное окружение и dev lock:
+
+```bash
+python -m venv .venv
+python -m pip install --require-hashes -r requirements-dev.txt
+```
+
+Основные проверки:
+
+```bash
+pytest
+pytest --cov=. --cov-report=term-missing --cov-fail-under=55
+ruff check .
+ruff format --check .
+pyright
+pip-audit -r requirements.txt --require-hashes
+bandit -c pyproject.toml -r . -x tests -ll
+```
+
+`ruff format --check .` пока является диагностической локальной проверкой: существующий код еще не имеет единого formatter baseline, поэтому CI не запускает ее до отдельного форматирующего PR.
+
+После изменения `requirements.in` или `requirements-dev.in` пересоберите оба lock-файла из чистого dev-окружения:
+
+```bash
+python -m piptools compile --upgrade --generate-hashes --resolver=backtracking --strip-extras --no-emit-index-url --output-file=requirements.txt requirements.in
+python -m piptools compile --upgrade --generate-hashes --resolver=backtracking --strip-extras --no-emit-index-url --allow-unsafe --output-file=requirements-dev.txt requirements-dev.in
+```
 
 ---
 
