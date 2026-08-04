@@ -25,7 +25,7 @@ if [ -z "$SRC_DIR" ] || [ ! -f "$SRC_DIR/autosub_server.py" ]; then
   SRC_DIR="$TMP_DIR"
 fi
 
-BACKUP_DIR="/opt/autosub-server-backups/$(date +%Y%m%d-%H%M%S)"
+BACKUP_DIR="/opt/autosub-server/shared/backups/$(date +%Y%m%d-%H%M%S)"
 
 mkdir -p "$APP_DIR" "$BACKUP_DIR"
 
@@ -57,6 +57,9 @@ install_file "$SRC_DIR/api_client.py" "$APP_DIR/api_client.py"
 install_file "$SRC_DIR/builder.py" "$APP_DIR/builder.py"
 install_file "$SRC_DIR/dashboard.py" "$APP_DIR/dashboard.py"
 install_file "$SRC_DIR/logger.py" "$APP_DIR/logger.py"
+install_file "$SRC_DIR/logging_utils.py" "$APP_DIR/logging_utils.py"
+install_file "$SRC_DIR/http_security.py" "$APP_DIR/http_security.py"
+install_file "$SRC_DIR/csrf.py" "$APP_DIR/csrf.py"
 install_file "$SRC_DIR/nginx-example.conf" "$APP_DIR/nginx-example.conf"
 install_file "$SRC_DIR/README.md" "$APP_DIR/README.md"
 install_file "$SRC_DIR/setup_nginx.sh" "$APP_DIR/setup_nginx.sh"

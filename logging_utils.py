@@ -15,7 +15,8 @@ _AUTH_RE = re.compile(
     r"(?i)\bauthorization\s*:\s*(?:basic|bearer)\s+[^\s,;]+"
 )
 _SECRET_RE = re.compile(
-    r"(?i)\b(password|passwd|api[_-]?token|token)\b(\s*[:=]\s*)([^\s,;&]+)"
+    r"(?i)\b(password|passwd|api[_-]?token|token|autosub_secret_key|secret[_-]?key)"
+    r"\b(\s*[:=]\s*)([^\s,;&]+)"
 )
 
 

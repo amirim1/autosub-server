@@ -17,11 +17,9 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(autosub_server, "env_get", lambda key, default="": default)
     monkeypatch.setattr(autosub_server, "_check_rate_limit", lambda ip: True)
     monkeypatch.setattr(autosub_server, "_client_ip", lambda request: "192.0.2.10")
-    autosub_server._csrf_tokens.clear()
     autosub_server._ip_requests.clear()
     with TestClient(autosub_server.app) as test_client:
         yield test_client
-    autosub_server._csrf_tokens.clear()
     autosub_server._ip_requests.clear()
 
 

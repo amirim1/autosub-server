@@ -43,6 +43,9 @@ install_file "$SRC_DIR/api_client.py" "$APP_DIR/api_client.py"
 install_file "$SRC_DIR/builder.py" "$APP_DIR/builder.py"
 install_file "$SRC_DIR/dashboard.py" "$APP_DIR/dashboard.py"
 install_file "$SRC_DIR/logger.py" "$APP_DIR/logger.py"
+install_file "$SRC_DIR/logging_utils.py" "$APP_DIR/logging_utils.py"
+install_file "$SRC_DIR/http_security.py" "$APP_DIR/http_security.py"
+install_file "$SRC_DIR/csrf.py" "$APP_DIR/csrf.py"
 install_file "$SRC_DIR/nginx-example.conf" "$APP_DIR/nginx-example.conf"
 install_file "$SRC_DIR/README.md" "$APP_DIR/README.md"
 install_file "$SRC_DIR/setup_nginx.sh" "$APP_DIR/setup_nginx.sh"
@@ -73,6 +76,20 @@ fi
 
 if [ ! -f "$APP_DIR/.env" ]; then
   cp "$SRC_DIR/.env.example" "$APP_DIR/.env"
+  python3 - "$APP_DIR/.env" <<'PY'
+import secrets
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+secret = secrets.token_urlsafe(48)
+lines = path.read_text(encoding="utf-8").splitlines()
+updated = [
+    f"AUTOSUB_SECRET_KEY={secret}" if line.startswith("AUTOSUB_SECRET_KEY=") else line
+    for line in lines
+]
+path.write_text("\n".join(updated) + "\n", encoding="utf-8")
+PY
 fi
 
 if [ ! -f "$APP_DIR/config.json" ]; then

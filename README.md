@@ -161,6 +161,9 @@ AUTOSUB_TRUSTED_PROXIES=127.0.0.1/32,::1/128
 AUTOSUB_ADMIN_USERNAME=admin
 AUTOSUB_ADMIN_PASSWORD=change-me
 
+# HMAC-ключ CSRF. На новой установке install.sh генерирует его автоматически.
+AUTOSUB_SECRET_KEY=replace-with-a-random-secret
+
 # Адрес оригинальной JSON-подписки 3x-ui
 XUI_SUB_URL=https://sub.your-domain.com:2096
 
@@ -189,6 +192,17 @@ XUI_PASSWORD=change_me
 ## 📊 Панель управления (Dashboard)
 
 Админ-панель по умолчанию работает локально. Пустой или состоящий только из пробелов `AUTOSUB_ADMIN_PASSWORD` разрешен исключительно при `AUTOSUB_HOST=127.0.0.1`, `::1` или `localhost`. При `0.0.0.0`, `::`, LAN-адресе или hostname приложение откажется запускаться без пароля.
+
+`AUTOSUB_SECRET_KEY` подписывает stateless CSRF-токены. Для существующей
+установки создайте ключ командой:
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Сохраните его в `/opt/autosub-server/.env`. Без ключа допустим только
+временный process-secret на loopback bind; non-loopback startup требует
+ключ длиной не менее 32 символов.
 
 Рекомендуется оставлять dashboard за SSH-туннелем, VPN или защищенным reverse proxy. Basic Auth без HTTPS не шифрует credentials и не защищает их от перехвата. Для подключения через SSH-туннель:
 
@@ -282,9 +296,8 @@ systemctl reload nginx
 curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/update.sh | bash
 ```
 
-Updater и будущая release-структура будут переведены на резервные копии внутри
-`/opt/autosub-server/shared/backups/`; до завершения этого этапа проверяйте backup
-вручную перед обновлением.
+Updater хранит свой текущий backup-набор внутри
+`/opt/autosub-server/shared/backups/`.
 
 ---
 

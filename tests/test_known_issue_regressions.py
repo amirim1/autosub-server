@@ -21,11 +21,9 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
     monkeypatch.setattr(autosub_server, "env_get", lambda key, default="": default)
-    autosub_server._csrf_tokens.clear()
     autosub_server._ip_requests.clear()
     with TestClient(autosub_server.app) as test_client:
         yield test_client
-    autosub_server._csrf_tokens.clear()
     autosub_server._ip_requests.clear()
 
 
@@ -227,26 +225,26 @@ def test_admin_action_errors_are_generic(client, monkeypatch, caplog):
     caplog.set_level(logging.ERROR, logger="autosub")
 
     monkeypatch.setattr(autosub_server, "save_admin_form", AsyncMock(side_effect=error))
-    token = autosub_server._generate_csrf_token()
+    token = client.app.state.csrf_manager.generate()
     save = client.post("/admin/save", data={"_csrf": token})
 
     monkeypatch.setattr(
         autosub_server, "discover_nodes_from_sub_id", AsyncMock(side_effect=error)
     )
-    token = autosub_server._generate_csrf_token()
+    token = client.app.state.csrf_manager.generate()
     discover = client.post(
         "/admin/discover", data={"_csrf": token, "sub_id": "test"}
     )
 
     autosub_server.storage.add_autoselect.side_effect = error
-    token = autosub_server._generate_csrf_token()
+    token = client.app.state.csrf_manager.generate()
     add = client.post(
         "/admin/add-autoselect",
         data={"_csrf": token, "autoselect_id": "test", "name": "Test"},
     )
 
     autosub_server.storage.delete_autoselect.side_effect = error
-    token = autosub_server._generate_csrf_token()
+    token = client.app.state.csrf_manager.generate()
     delete = client.post(
         "/admin/delete-autoselect",
         data={"_csrf": token, "autoselect_id": "test"},

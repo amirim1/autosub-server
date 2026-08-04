@@ -101,7 +101,6 @@ def http_client(monkeypatch, tmp_path):
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
     monkeypatch.setattr(autosub_server, "env_get", lambda key, default="": default)
-    autosub_server._csrf_tokens.clear()
     autosub_server._ip_requests.clear()
     with TestClient(autosub_server.app) as client:
         yield client, fake_storage
@@ -125,24 +124,22 @@ def test_admin_basic_auth(http_client, monkeypatch):
     assert response.status_code == 200
 
 
-def test_admin_save_requires_one_time_csrf(http_client, monkeypatch):
+def test_admin_save_requires_reusable_csrf(http_client, monkeypatch):
     client, _ = http_client
     save = AsyncMock()
     monkeypatch.setattr(autosub_server, "save_admin_form", save)
 
     missing = client.post("/admin/save", data={}, follow_redirects=False)
-    assert missing.status_code == 303
+    assert missing.status_code == 403
     save.assert_not_awaited()
 
-    expired_token = autosub_server._generate_csrf_token()
-    autosub_server._csrf_tokens[expired_token] = 0
-    expired = client.post(
-        "/admin/save", data={"_csrf": expired_token}, follow_redirects=False
+    invalid = client.post(
+        "/admin/save", data={"_csrf": "invalid"}, follow_redirects=False
     )
-    assert expired.status_code == 303
+    assert invalid.status_code == 403
     save.assert_not_awaited()
 
-    token = autosub_server._generate_csrf_token()
+    token = client.app.state.csrf_manager.generate()
     valid = client.post(
         "/admin/save", data={"_csrf": token}, follow_redirects=False
     )
@@ -153,7 +150,7 @@ def test_admin_save_requires_one_time_csrf(http_client, monkeypatch):
         "/admin/save", data={"_csrf": token}, follow_redirects=False
     )
     assert reused.status_code == 303
-    assert save.await_count == 1
+    assert save.await_count == 2
 
 
 def test_empty_http_subscription_and_rate_limit(http_client, monkeypatch):

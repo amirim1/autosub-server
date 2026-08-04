@@ -38,34 +38,16 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
     monkeypatch.setattr(autosub_server, "render_api_test", AsyncMock(return_value="{}"))
-    autosub_server._csrf_tokens.clear()
     autosub_server._ip_requests.clear()
     with TestClient(autosub_server.app) as test_client:
         yield test_client
-    autosub_server._csrf_tokens.clear()
     autosub_server._ip_requests.clear()
 
 
-def test_csrf_cleanup_store_limit_and_process_local_reset(monkeypatch):
-    autosub_server._csrf_tokens.clear()
-    now = 1_000_000.0
-    monkeypatch.setattr(autosub_server.time, "time", lambda: now)
-    autosub_server._csrf_tokens["expired"] = now - 1
-    autosub_server._csrf_tokens["valid"] = now + 100
-
-    autosub_server._generate_csrf_token()
-
-    assert "expired" not in autosub_server._csrf_tokens
-    assert "valid" in autosub_server._csrf_tokens
-
-    autosub_server._csrf_tokens.clear()
-    for _ in range(autosub_server._CSRF_TOKEN_MAX + 50):
-        autosub_server._generate_csrf_token()
-    assert len(autosub_server._csrf_tokens) == autosub_server._CSRF_TOKEN_MAX
-
-    token = next(iter(autosub_server._csrf_tokens))
-    autosub_server._csrf_tokens.clear()
-    assert autosub_server._validate_csrf_token(token) is False
+def test_csrf_uses_no_process_local_token_store():
+    assert not hasattr(autosub_server, "_csrf_tokens")
+    assert not hasattr(autosub_server, "_CSRF_TOKEN_MAX")
+    assert not hasattr(autosub_server, "_validate_csrf_token")
 
 
 def test_one_csrf_token_is_rendered_into_multiple_admin_forms():
@@ -86,7 +68,7 @@ def test_random_csrf_token_is_rejected(client, monkeypatch):
         "/admin/save", data={"_csrf": "not-a-generated-token"}, follow_redirects=False
     )
 
-    assert response.status_code == 303
+    assert response.status_code == 403
     save.assert_not_awaited()
 
 

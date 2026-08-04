@@ -129,6 +129,9 @@ AUTOSUB_TRUSTED_PROXIES=127.0.0.1/32,::1/128
 AUTOSUB_ADMIN_USERNAME=admin
 AUTOSUB_ADMIN_PASSWORD=change-me
 
+# CSRF HMAC key. install.sh generates it automatically for a new installation.
+AUTOSUB_SECRET_KEY=replace-with-a-random-secret
+
 # Original 3x-ui JSON subscription upstream URL
 XUI_SUB_URL=https://sub.your-domain.com:2096
 
@@ -157,6 +160,17 @@ XUI_PASSWORD=change_me
 ## 📊 Dashboard & Management
 
 The dashboard is bound to `127.0.0.1` by default. An empty or whitespace-only `AUTOSUB_ADMIN_PASSWORD` is allowed only with `AUTOSUB_HOST=127.0.0.1`, `::1`, or `localhost`. With `0.0.0.0`, `::`, a LAN address, or a hostname, the application refuses to start without a password.
+
+`AUTOSUB_SECRET_KEY` signs stateless CSRF tokens. For an existing installation,
+generate it with:
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Store it in `/opt/autosub-server/.env`. Without a key, only a temporary process
+secret on a loopback bind is allowed. A non-loopback startup requires a key of at
+least 32 characters.
 
 Keep the dashboard behind an SSH tunnel, VPN, or secured reverse proxy. Basic Auth without HTTPS does not encrypt credentials and cannot prevent interception. To use an SSH tunnel:
 
@@ -250,9 +264,8 @@ systemctl reload nginx
 curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/update.sh | bash
 ```
 
-The updater and future release layout will move backups under
-`/opt/autosub-server/shared/backups/`; until that stage is complete, verify a backup
-manually before updating.
+The updater stores its current backup set under
+`/opt/autosub-server/shared/backups/`.
 
 ---
 

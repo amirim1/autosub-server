@@ -44,11 +44,9 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(
         autosub_server, "resolve_security_flags", AsyncMock(return_value={})
     )
-    autosub_server._csrf_tokens.clear()
     autosub_server._ip_requests.clear()
     with TestClient(autosub_server.app) as test_client:
         yield test_client
-    autosub_server._csrf_tokens.clear()
     autosub_server._ip_requests.clear()
 
 
@@ -172,11 +170,13 @@ def test_log_message_and_exception_redaction(caplog):
         "abc123xyz",
         "dXNlcjpwYXNz",
         "/secret-path?token=abc123",
+        "csrf-secret-value",
     ]
     message = (
         f"sub_id_hash={fingerprint_secret(secrets[0])} "
         "email=alice.private@example.com password=SuperSecret123 "
         "token=abc123xyz Authorization: Basic dXNlcjpwYXNz "
+        "AUTOSUB_SECRET_KEY=csrf-secret-value "
         "url=https://panel.example/secret-path?token=abc123"
     )
     caplog.set_level(logging.ERROR, logger="autosub")

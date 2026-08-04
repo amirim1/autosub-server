@@ -34,10 +34,8 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
     monkeypatch.setattr(autosub_server, "render_api_test", AsyncMock(return_value="{}"))
-    autosub_server._csrf_tokens.clear()
     with TestClient(autosub_server.app) as test_client:
         yield test_client
-    autosub_server._csrf_tokens.clear()
 
 
 def _basic(username, password):

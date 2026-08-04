@@ -17,6 +17,7 @@ from config import APP_DIR, CONFIG_PATH, DB_PATH, ensure_app_dir, env_get, load_
 from logger import logger
 from logging_utils import fingerprint_secret
 from http_security import RequestContextMiddleware, json_error, plain_error
+from csrf import create_csrf_manager
 from storage import Storage
 from api_client import close_xui_api, fetch_original_sub_html
 from builder import build_for_subscription, discover_nodes_from_sub_id, resolve_security_flags
@@ -29,36 +30,6 @@ from dashboard import (
 )
 
 storage = Storage(DB_PATH)
-
-# CSRF token store (token: expiry_time)
-_csrf_tokens = {}
-_CSRF_TOKEN_MAX = 500
-_CSRF_TOKEN_TTL = 3600  # 1 hour
-
-def _generate_csrf_token():
-    now = time.time()
-    # Cleanup expired
-    expired = [k for k, v in _csrf_tokens.items() if v < now]
-    for k in expired:
-        _csrf_tokens.pop(k, None)
-        
-    token = secrets.token_hex(24)
-    if len(_csrf_tokens) >= _CSRF_TOKEN_MAX:
-        # If still too large, remove oldest
-        if _csrf_tokens:
-            oldest = min(_csrf_tokens.items(), key=lambda x: x[1])[0]
-            _csrf_tokens.pop(oldest, None)
-            
-    _csrf_tokens[token] = now + _CSRF_TOKEN_TTL
-    return token
-
-def _validate_csrf_token(token: str):
-    now = time.time()
-    if token in _csrf_tokens:
-        expiry = _csrf_tokens.pop(token)
-        if expiry >= now:
-            return True
-    return False
 
 security = HTTPBasic(auto_error=False)
 
@@ -110,11 +81,28 @@ def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
         headers={"WWW-Authenticate": 'Basic realm="AutoSub Admin"'},
     )
 
+
+def _csrf_error(request: Request, token: object | None) -> Response | None:
+    if request.app.state.csrf_manager.verify(token, scope="admin"):
+        return None
+    logger.warning("CSRF validation failed")
+    return plain_error("CSRF validation failed", 403)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     admin_host = str(env_get("AUTOSUB_HOST", "127.0.0.1") or "")
     admin_password = str(env_get("AUTOSUB_ADMIN_PASSWORD", "") or "")
     validate_admin_security_config(admin_host, admin_password)
+    csrf_manager, generated_csrf_secret = create_csrf_manager(
+        admin_host,
+        env_get("AUTOSUB_SECRET_KEY", ""),
+        is_loopback=_is_loopback_bind_host,
+    )
+    app.state.csrf_manager = csrf_manager
+    if generated_csrf_secret:
+        logger.warning(
+            "AUTOSUB_SECRET_KEY is not configured; using a temporary process secret on loopback bind"
+        )
     ensure_app_dir()
     await storage.connect()
     if CONFIG_PATH.exists():
@@ -321,7 +309,7 @@ async def handle_json_route(sub_id: str, request: Request):
 
 @app.get("/admin", dependencies=[Depends(verify_admin)])
 async def admin_page(request: Request):
-    csrf_token = _generate_csrf_token()
+    csrf_token = request.app.state.csrf_manager.generate()
     return await render_admin(request, storage, csrf_token=csrf_token)
 
 
@@ -380,8 +368,9 @@ async def admin_save(request: Request):
     if isinstance(csrf, list):
         csrf = csrf[0]
         
-    if not _validate_csrf_token(csrf):
-        return RedirectResponse(url="/admin?msg=Ошибка+CSRF+токена.+Страница+была+обновлена", status_code=303)
+    csrf_error = _csrf_error(request, csrf)
+    if csrf_error:
+        return csrf_error
     try:
         await save_admin_form(storage, parsed)
         return RedirectResponse(url="/admin?msg=Настройки+успешно+сохранены", status_code=303)
@@ -392,8 +381,9 @@ async def admin_save(request: Request):
 
 @app.post("/admin/discover", dependencies=[Depends(verify_admin)])
 async def admin_discover(request: Request, sub_id: str = Form(""), csrf: str = Form("", alias="_csrf")):
-    if not _validate_csrf_token(csrf):
-        return RedirectResponse(url="/admin?msg=Ошибка+CSRF+токена.+Страница+была+обновлена", status_code=303)
+    csrf_error = _csrf_error(request, csrf)
+    if csrf_error:
+        return csrf_error
     sub_id = sub_id.strip()
     if not sub_id:
         return RedirectResponse(url="/admin", status_code=303)
@@ -407,9 +397,10 @@ async def admin_discover(request: Request, sub_id: str = Form(""), csrf: str = F
 
 
 @app.post("/admin/set-client-group", dependencies=[Depends(verify_admin)])
-async def admin_set_client_group(csrf: str = Form("", alias="_csrf"), sub_id: str = Form(""), email: str = Form(""), groups: str = Form("")):
-    if not _validate_csrf_token(csrf):
-        return RedirectResponse(url="/admin?msg=Ошибка+CSRF+токена.+Страница+была+обновлена", status_code=303)
+async def admin_set_client_group(request: Request, csrf: str = Form("", alias="_csrf"), sub_id: str = Form(""), email: str = Form(""), groups: str = Form("")):
+    csrf_error = _csrf_error(request, csrf)
+    if csrf_error:
+        return csrf_error
     sub_id = sub_id.strip()
     if sub_id:
         await storage.set_client_groups(sub_id, email.strip(), groups.strip())
@@ -418,9 +409,10 @@ async def admin_set_client_group(csrf: str = Form("", alias="_csrf"), sub_id: st
 
 
 @app.post("/admin/delete-client-group", dependencies=[Depends(verify_admin)])
-async def admin_delete_client_group(csrf: str = Form("", alias="_csrf"), sub_id: str = Form("")):
-    if not _validate_csrf_token(csrf):
-        return RedirectResponse(url="/admin?msg=Ошибка+CSRF+токена.+Страница+была+обновлена", status_code=303)
+async def admin_delete_client_group(request: Request, csrf: str = Form("", alias="_csrf"), sub_id: str = Form("")):
+    csrf_error = _csrf_error(request, csrf)
+    if csrf_error:
+        return csrf_error
     sub_id = sub_id.strip()
     if sub_id:
         await storage.delete_client_groups(sub_id)
@@ -430,13 +422,15 @@ async def admin_delete_client_group(csrf: str = Form("", alias="_csrf"), sub_id:
 
 @app.post("/admin/add-autoselect", dependencies=[Depends(verify_admin)])
 async def admin_add_autoselect(
+    request: Request,
     csrf: str = Form("", alias="_csrf"),
     autoselect_id: str = Form(""),
     name: str = Form(""),
     strategy: str = Form("leastPing"),
 ):
-    if not _validate_csrf_token(csrf):
-        return RedirectResponse(url="/admin?msg=Ошибка+CSRF+токена.+Страница+была+обновлена", status_code=303)
+    csrf_error = _csrf_error(request, csrf)
+    if csrf_error:
+        return csrf_error
     autoselect_id = autoselect_id.strip()
     name = name.strip()
     if strategy not in ("leastPing", "leastLoad"):
@@ -453,11 +447,13 @@ async def admin_add_autoselect(
 
 @app.post("/admin/delete-autoselect", dependencies=[Depends(verify_admin)])
 async def admin_delete_autoselect(
+    request: Request,
     csrf: str = Form("", alias="_csrf"),
     autoselect_id: str = Form(""),
 ):
-    if not _validate_csrf_token(csrf):
-        return RedirectResponse(url="/admin?msg=Ошибка+CSRF+токена.+Страница+была+обновлена", status_code=303)
+    csrf_error = _csrf_error(request, csrf)
+    if csrf_error:
+        return csrf_error
     autoselect_id = autoselect_id.strip()
     if autoselect_id:
         try:
