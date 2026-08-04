@@ -116,7 +116,7 @@ curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/dev/install.
 ```bash
 nano /opt/autosub-server/.env
 ```
-Укажите данные для подключения к вашей панели 3x-ui (потребуется `XUI_SUB_URL`, `XUI_API_URL` и либо логин/пароль, либо `XUI_API_TOKEN`). Задайте `AUTOSUB_ADMIN_PASSWORD` для защиты админ-панели AutoSub.
+Укажите данные для подключения к вашей панели 3x-ui (потребуется `XUI_SUB_URL`, `XUI_API_URL` и либо логин/пароль, либо `XUI_API_TOKEN`). Для админ-панели задайте `AUTOSUB_ADMIN_USERNAME` и надежный `AUTOSUB_ADMIN_PASSWORD`. После обновления сохраненный в браузере username должен совпадать с настроенным значением (по умолчанию `admin`).
 После сохранения перезапустите сервис:
 ```bash
 systemctl restart autosub-server
@@ -157,8 +157,9 @@ AUTOSUB_PORT=25500
 # Доверенные reverse-proxy (IP/CIDR через запятую). Только от них принимаются X-Real-IP/X-Forwarded-For
 AUTOSUB_TRUSTED_PROXIES=127.0.0.1/32,::1/128
 
-# Пароль для доступа к админ-панели /admin (оставьте пустым для отключения авторизации)
-AUTOSUB_ADMIN_PASSWORD=your_secure_admin_password
+# Basic Auth для админ-панели /admin. Обязательно замените примерный пароль.
+AUTOSUB_ADMIN_USERNAME=admin
+AUTOSUB_ADMIN_PASSWORD=change-me
 
 # Адрес оригинальной JSON-подписки 3x-ui
 XUI_SUB_URL=https://sub.your-domain.com:2096
@@ -187,7 +188,9 @@ XUI_PASSWORD=change_me
 
 ## 📊 Панель управления (Dashboard)
 
-Админ-панель работает локально для безопасности. Для подключения используйте SSH-туннель:
+Админ-панель по умолчанию работает локально. Пустой или состоящий только из пробелов `AUTOSUB_ADMIN_PASSWORD` разрешен исключительно при `AUTOSUB_HOST=127.0.0.1`, `::1` или `localhost`. При `0.0.0.0`, `::`, LAN-адресе или hostname приложение откажется запускаться без пароля.
+
+Рекомендуется оставлять dashboard за SSH-туннелем, VPN или защищенным reverse proxy. Basic Auth без HTTPS не шифрует credentials и не защищает их от перехвата. Для подключения через SSH-туннель:
 
 ```bash
 ssh -L 25500:127.0.0.1:25500 root@YOUR_SERVER_IP

@@ -13,15 +13,24 @@ function showToast(message, type = 'success') {
     
     const toast = document.createElement('div');
     toast.className = 'toast';
-    
+
     const icon = type === 'success' ? '✅' : '⚠️';
-    
-    toast.innerHTML = `
-        <div class="toast-icon">${icon}</div>
-        <div class="toast-text">${message}</div>
-        <button type="button" class="toast-close" onclick="this.parentElement.remove()">&times;</button>
-    `;
-    
+
+    const iconElement = document.createElement('div');
+    iconElement.className = 'toast-icon';
+    iconElement.textContent = icon;
+
+    const textElement = document.createElement('div');
+    textElement.className = 'toast-text';
+    textElement.textContent = String(message);
+
+    const closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.className = 'toast-close';
+    closeButton.textContent = '×';
+    closeButton.addEventListener('click', () => toast.remove());
+
+    toast.append(iconElement, textElement, closeButton);
     container.appendChild(toast);
     
     setTimeout(() => {

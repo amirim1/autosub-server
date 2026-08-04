@@ -14,6 +14,7 @@ from builder import (
 from fingerprint import node_name, profile_node_id, node_summary
 from fastapi.templating import Jinja2Templates
 from config import APP_DIR, VERSION
+from logger import logger
 
 templates_dir = APP_DIR / "templates"
 if not templates_dir.exists():
@@ -77,8 +78,9 @@ async def api_clients_safe(limit=500):
                 "inbound": client.get("_inbound_remark") or "",
             })
         return clients[:limit], ""
-    except Exception as exc:
-        return [], str(exc)
+    except Exception:
+        logger.exception("Admin client list loading failed")
+        return [], "API connection failed"
 
 
 # --- Shared preview/debug logic ---
@@ -265,17 +267,17 @@ async def render_api_test():
         groups = await api.group_map()
         payload = {
             "ok": True,
-            "api_url": api.base,
+            "message": "Connection successful",
             "csrf": bool(api.csrf_token),
             "cookie": bool(api.cookie_header),
             "inbounds": len(inbounds),
             "groups": groups,
         }
-    except Exception as exc:
+    except Exception:
+        logger.exception("Admin API connection test failed")
         payload = {
             "ok": False,
-            "api_url": env_get("XUI_API_URL", env_get("XUI_URL", "")),
-            "error": str(exc),
+            "error": "Connection failed",
         }
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
@@ -383,7 +385,3 @@ async def save_admin_form(storage, data):
                 tag_raw = [tag_raw]
             tag_filter = [t.strip() for t in tag_raw if t.strip()]
             await storage.update_autoselect(aid, selected_node_ids=["*"], tag_filter=tag_filter, name=name, strategy=strategy)
-
-
-# Need env_get for render_api_test fallback
-from config import env_get

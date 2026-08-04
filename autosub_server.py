@@ -61,12 +61,47 @@ def _validate_csrf_token(token: str):
 
 security = HTTPBasic(auto_error=False)
 
+
+class AdminSecurityConfigError(RuntimeError):
+    """Raised when the admin dashboard would start with unsafe authentication."""
+
+
+def _is_loopback_bind_host(host: str) -> bool:
+    normalized = str(host or "").strip().lower()
+    if normalized == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+def validate_admin_security_config(host: str, password: str) -> None:
+    """Allow passwordless admin access only on an explicit loopback bind."""
+    if str(password or "").strip():
+        return
+    if _is_loopback_bind_host(host):
+        return
+    raise AdminSecurityConfigError(
+        "Empty AUTOSUB_ADMIN_PASSWORD is allowed only with a loopback AUTOSUB_HOST"
+    )
+
+
 def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
-    password = env_get("AUTOSUB_ADMIN_PASSWORD", "")
-    if not password:
+    configured_username = str(env_get("AUTOSUB_ADMIN_USERNAME", "admin") or "")
+    configured_password = str(env_get("AUTOSUB_ADMIN_PASSWORD", "") or "")
+    if not configured_password.strip():
         return True
     if credentials:
-        if secrets.compare_digest(credentials.password, password):
+        username_matches = secrets.compare_digest(
+            str(credentials.username).encode("utf-8"),
+            configured_username.encode("utf-8"),
+        )
+        password_matches = secrets.compare_digest(
+            str(credentials.password).encode("utf-8"),
+            configured_password.encode("utf-8"),
+        )
+        if username_matches and password_matches:
             return True
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -76,6 +111,9 @@ def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    admin_host = str(env_get("AUTOSUB_HOST", "127.0.0.1") or "")
+    admin_password = str(env_get("AUTOSUB_ADMIN_PASSWORD", "") or "")
+    validate_admin_security_config(admin_host, admin_password)
     ensure_app_dir()
     await storage.connect()
     if CONFIG_PATH.exists():
@@ -87,11 +125,10 @@ async def lifespan(app: FastAPI):
         logger.warning(f"config.json not found at {CONFIG_PATH}, starting fresh")
     logger.info(f"AutoSub Server v{VERSION} started")
     logger.info(f"DB: {DB_PATH}")
-    admin_password = env_get("AUTOSUB_ADMIN_PASSWORD", "")
-    if admin_password:
+    if admin_password.strip():
         logger.info("Admin dashboard: Basic Auth enabled")
     else:
-        logger.warning("Admin dashboard: NO PASSWORD SET — anyone with port access can modify settings")
+        logger.warning("Admin dashboard: passwordless access enabled on loopback bind")
         
     try:
         yield
@@ -281,8 +318,9 @@ async def admin_preview(request: Request, sub_id: str = ""):
         return RedirectResponse(url="/admin", status_code=303)
     try:
         return await render_preview(request, storage, sub_id)
-    except Exception as exc:
-        return PlainTextResponse(f"preview failed: {exc}", status_code=500)
+    except Exception:
+        logger.exception("Admin preview generation failed")
+        return PlainTextResponse("Preview generation failed", status_code=500)
 
 
 @app.get("/admin/api-test", dependencies=[Depends(verify_admin)])
@@ -296,8 +334,12 @@ async def admin_debug(sub_id: str = ""):
     sub_id = sub_id.strip()
     if not sub_id:
         return JSONResponse(status_code=400, content={"error": "sub_id is required"})
-    content = await render_debug(storage, sub_id)
-    return Response(content=content, media_type="application/json; charset=utf-8")
+    try:
+        content = await render_debug(storage, sub_id)
+        return Response(content=content, media_type="application/json; charset=utf-8")
+    except Exception:
+        logger.exception("Admin debug generation failed")
+        return JSONResponse(status_code=500, content={"error": "Debug generation failed"})
 
 
 @app.post("/admin/save", dependencies=[Depends(verify_admin)])
@@ -329,8 +371,9 @@ async def admin_save(request: Request):
     try:
         await save_admin_form(storage, parsed)
         return RedirectResponse(url="/admin?msg=Настройки+успешно+сохранены", status_code=303)
-    except Exception as exc:
-        return PlainTextResponse(f"save failed: {exc}", status_code=500)
+    except Exception:
+        logger.exception("Admin settings save failed")
+        return PlainTextResponse("Settings save failed", status_code=500)
 
 
 @app.post("/admin/discover", dependencies=[Depends(verify_admin)])
@@ -344,8 +387,9 @@ async def admin_discover(request: Request, sub_id: str = Form(""), csrf: str = F
         nodes = await discover_nodes_from_sub_id(sub_id)
         await storage.set_node_catalog(nodes)
         return RedirectResponse(url=f"/admin?msg=Каталог+успешно+обновлен:+{len(nodes)}+нод", status_code=303)
-    except Exception as exc:
-        return PlainTextResponse(f"discovery failed: {exc}", status_code=500)
+    except Exception:
+        logger.exception("Admin node discovery failed")
+        return PlainTextResponse("Node discovery failed", status_code=500)
 
 
 @app.post("/admin/set-client-group", dependencies=[Depends(verify_admin)])
@@ -387,9 +431,9 @@ async def admin_add_autoselect(
         try:
             await storage.add_autoselect(autoselect_id, name, strategy=strategy)
             return RedirectResponse(url=f"/admin?msg=Балансировщик+{name}+успешно+создан", status_code=303)
-        except Exception as exc:
-            logger.error(f"Failed to add autoselect profile: {exc}")
-            return PlainTextResponse(f"add autoselect failed: {exc}", status_code=500)
+        except Exception:
+            logger.exception("Admin autoselect creation failed")
+            return PlainTextResponse("Autoselect creation failed", status_code=500)
     return RedirectResponse(url="/admin", status_code=303)
 
 
@@ -405,9 +449,9 @@ async def admin_delete_autoselect(
         try:
             await storage.delete_autoselect(autoselect_id)
             return RedirectResponse(url="/admin?msg=Балансировщик+удален", status_code=303)
-        except Exception as exc:
-            logger.error(f"Failed to delete autoselect profile: {exc}")
-            return PlainTextResponse(f"delete autoselect failed: {exc}", status_code=500)
+        except Exception:
+            logger.exception("Admin autoselect deletion failed")
+            return PlainTextResponse("Autoselect deletion failed", status_code=500)
     return RedirectResponse(url="/admin", status_code=303)
 
 

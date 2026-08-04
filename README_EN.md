@@ -105,6 +105,7 @@ Requires a server running Ubuntu/Debian.
    nano /opt/autosub-server/.env
    systemctl restart autosub-server
    ```
+   Configure `AUTOSUB_ADMIN_USERNAME` and a strong `AUTOSUB_ADMIN_PASSWORD` as well. After upgrading, saved browser credentials must use the configured username (`admin` by default).
 2. Open your 3x-ui panel settings and set **"JSON reverse proxy URI"** to `https://sub.your-domain.com:2097/json/`.
 3. Set up the Nginx reverse proxy (see [Nginx Setup](#-nginx-setup)).
 4. Access the local AutoSub admin dashboard (see [Dashboard](#-dashboard--management)).
@@ -124,8 +125,9 @@ AUTOSUB_PORT=25500
 # Trusted reverse proxies (comma-separated IP/CIDR). Forwarding headers are accepted only from these peers.
 AUTOSUB_TRUSTED_PROXIES=127.0.0.1/32,::1/128
 
-# Password for /admin dashboard (leave empty to disable authentication)
-AUTOSUB_ADMIN_PASSWORD=your_secure_admin_password
+# Basic Auth for /admin. Replace the example password before use.
+AUTOSUB_ADMIN_USERNAME=admin
+AUTOSUB_ADMIN_PASSWORD=change-me
 
 # Original 3x-ui JSON subscription upstream URL
 XUI_SUB_URL=https://sub.your-domain.com:2096
@@ -154,7 +156,9 @@ XUI_PASSWORD=change_me
 
 ## 📊 Dashboard & Management
 
-The dashboard is bound to `127.0.0.1` for security. Use an SSH tunnel to connect:
+The dashboard is bound to `127.0.0.1` by default. An empty or whitespace-only `AUTOSUB_ADMIN_PASSWORD` is allowed only with `AUTOSUB_HOST=127.0.0.1`, `::1`, or `localhost`. With `0.0.0.0`, `::`, a LAN address, or a hostname, the application refuses to start without a password.
+
+Keep the dashboard behind an SSH tunnel, VPN, or secured reverse proxy. Basic Auth without HTTPS does not encrypt credentials and cannot prevent interception. To use an SSH tunnel:
 
 ```bash
 ssh -L 25500:127.0.0.1:25500 root@YOUR_SERVER_IP

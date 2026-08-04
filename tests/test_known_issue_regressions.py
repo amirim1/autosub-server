@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from html.parser import HTMLParser
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -28,11 +29,28 @@ def client(monkeypatch, tmp_path):
     autosub_server._ip_requests.clear()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Known issue: admin msg flows through dataset.message into innerHTML",
+class _FlashMessageParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.message = None
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        if tag == "div" and attributes.get("id") == "serverFlashMessage":
+            self.message = attributes.get("data-message")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        '<img src=x onerror=alert(1)>',
+        '<script>alert(1)</script>',
+        '"><svg onload=alert(1)>',
+        '&amp;lt;img onerror=alert(1)&amp;gt;',
+        "Обычный русский текст",
+    ],
 )
-def test_admin_flash_message_does_not_use_inner_html():
+def test_admin_flash_message_does_not_use_inner_html(payload):
     root = Path(__file__).parents[1]
     server_source = (root / "dashboard.py").read_text(encoding="utf-8")
     template = (root / "templates" / "admin.html").read_text(encoding="utf-8")
@@ -44,7 +62,14 @@ def test_admin_flash_message_does_not_use_inner_html():
     assert 'request.query_params.get("msg", "")' in server_source
     assert 'data-message="{{ message }}"' in template
     assert "msgElement.dataset.message" in javascript
-    assert "innerHTML" not in show_toast
+    assert "textElement.textContent = String(message)" in show_toast
+    for unsafe_sink in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write"):
+        assert unsafe_sink not in show_toast
+
+    rendered = dashboard.templates.get_template("admin.html").render(message=payload)
+    parser = _FlashMessageParser()
+    parser.feed(rendered)
+    assert parser.message == payload
 
 
 def test_public_error_hides_details_but_traceback_is_logged(
@@ -70,16 +95,28 @@ def test_public_error_hides_details_but_traceback_is_logged(
     assert "Traceback" in caplog.text
 
 
-def test_admin_preview_returns_exception_string(client, monkeypatch):
-    detail = "preview failed at internal-service.example.test"
+@pytest.mark.parametrize(
+    "detail",
+    [
+        "https://internal-panel.example/secret-path",
+        "password=supersecret",
+        "token=abc123",
+        r"C:\private\path",
+    ],
+)
+def test_admin_preview_hides_exception_details(client, monkeypatch, caplog, detail):
     monkeypatch.setattr(
         autosub_server, "render_preview", AsyncMock(side_effect=RuntimeError(detail))
     )
+    caplog.set_level(logging.ERROR, logger="autosub")
 
     response = client.get("/admin/preview?sub_id=test")
 
     assert response.status_code == 500
-    assert detail in response.text
+    assert response.text == "Preview generation failed"
+    assert detail not in response.text
+    assert "Admin preview generation failed" in caplog.text
+    assert "Traceback" in caplog.text
 
 
 @pytest.mark.xfail(
@@ -149,19 +186,86 @@ def test_subscription_logs_do_not_include_client_email(monkeypatch):
     assert email not in "\n".join(messages)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Known issue: admin API test returns the internal panel URL and exception text",
-)
-def test_admin_api_test_does_not_return_internal_url(monkeypatch):
+def test_admin_api_test_does_not_return_internal_url(monkeypatch, caplog):
     internal_url = "https://panel.example.test/secret-base-path"
+    secret = f"request failed for {internal_url}?password=supersecret&token=abc123"
     api = AsyncMock()
     api.base = internal_url
     api.csrf_token = ""
     api.cookie_header = ""
-    api.login.side_effect = RuntimeError(f"request failed for {internal_url}")
+    api.login.side_effect = RuntimeError(secret)
+    monkeypatch.setattr(dashboard, "get_xui_api", lambda: api)
+    caplog.set_level(logging.ERROR, logger="autosub")
+
+    payload = json.loads(asyncio.run(dashboard.render_api_test()))
+
+    assert payload == {"ok": False, "error": "Connection failed"}
+    assert internal_url not in json.dumps(payload)
+    assert "supersecret" not in json.dumps(payload)
+    assert "abc123" not in json.dumps(payload)
+    assert "Admin API connection test failed" in caplog.text
+
+
+def test_admin_api_test_success_does_not_return_internal_url(monkeypatch):
+    internal_url = "https://panel.example.test/secret-base-path"
+    api = AsyncMock()
+    api.base = internal_url
+    api.csrf_token = "csrf"
+    api.cookie_header = "session=true"
+    api.inbounds.return_value = []
+    api.group_map.return_value = {}
     monkeypatch.setattr(dashboard, "get_xui_api", lambda: api)
 
-    payload = asyncio.run(dashboard.render_api_test())
+    payload = json.loads(asyncio.run(dashboard.render_api_test()))
 
-    assert internal_url not in payload
+    assert payload["ok"] is True
+    assert payload["message"] == "Connection successful"
+    assert internal_url not in json.dumps(payload)
+
+
+def test_admin_action_errors_are_generic(client, monkeypatch, caplog):
+    secret = "https://internal-panel.example/secret?password=supersecret&token=abc123"
+    error = RuntimeError(secret)
+    caplog.set_level(logging.ERROR, logger="autosub")
+
+    monkeypatch.setattr(autosub_server, "save_admin_form", AsyncMock(side_effect=error))
+    token = autosub_server._generate_csrf_token()
+    save = client.post("/admin/save", data={"_csrf": token})
+
+    monkeypatch.setattr(
+        autosub_server, "discover_nodes_from_sub_id", AsyncMock(side_effect=error)
+    )
+    token = autosub_server._generate_csrf_token()
+    discover = client.post(
+        "/admin/discover", data={"_csrf": token, "sub_id": "test"}
+    )
+
+    autosub_server.storage.add_autoselect.side_effect = error
+    token = autosub_server._generate_csrf_token()
+    add = client.post(
+        "/admin/add-autoselect",
+        data={"_csrf": token, "autoselect_id": "test", "name": "Test"},
+    )
+
+    autosub_server.storage.delete_autoselect.side_effect = error
+    token = autosub_server._generate_csrf_token()
+    delete = client.post(
+        "/admin/delete-autoselect",
+        data={"_csrf": token, "autoselect_id": "test"},
+    )
+
+    expected = [
+        (save, "Settings save failed"),
+        (discover, "Node discovery failed"),
+        (add, "Autoselect creation failed"),
+        (delete, "Autoselect deletion failed"),
+    ]
+    for response, message in expected:
+        assert response.status_code == 500
+        assert response.text == message
+        assert secret not in response.text
+
+    assert "Admin settings save failed" in caplog.text
+    assert "Admin node discovery failed" in caplog.text
+    assert "Admin autoselect creation failed" in caplog.text
+    assert "Admin autoselect deletion failed" in caplog.text

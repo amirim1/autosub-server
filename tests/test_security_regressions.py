@@ -1,4 +1,3 @@
-import base64
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -7,20 +6,6 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 import autosub_server
-
-
-ADMIN_ROUTES = [
-    ("GET", "/admin"),
-    ("GET", "/admin/preview?sub_id=test"),
-    ("GET", "/admin/api-test"),
-    ("GET", "/admin/debug?sub_id=test"),
-    ("POST", "/admin/save"),
-    ("POST", "/admin/discover"),
-    ("POST", "/admin/set-client-group"),
-    ("POST", "/admin/delete-client-group"),
-    ("POST", "/admin/add-autoselect"),
-    ("POST", "/admin/delete-autoselect"),
-]
 
 
 def _request(peer, headers=None):
@@ -59,57 +44,6 @@ def client(monkeypatch, tmp_path):
         yield test_client
     autosub_server._csrf_tokens.clear()
     autosub_server._ip_requests.clear()
-
-
-def _basic(username, password):
-    encoded = base64.b64encode(f"{username}:{password}".encode()).decode("ascii")
-    return {"Authorization": f"Basic {encoded}"}
-
-
-@pytest.mark.parametrize(("method", "path"), ADMIN_ROUTES)
-def test_every_admin_route_requires_password_when_configured(
-    client, monkeypatch, method, path
-):
-    monkeypatch.setattr(
-        autosub_server,
-        "env_get",
-        lambda key, default="": "correct" if key == "AUTOSUB_ADMIN_PASSWORD" else default,
-    )
-
-    response = client.request(method, path, headers=_basic("admin", "wrong"))
-
-    assert response.status_code == 401
-    assert response.headers["www-authenticate"] == 'Basic realm="AutoSub Admin"'
-
-
-def test_arbitrary_username_is_accepted_with_correct_password(client, monkeypatch):
-    monkeypatch.setattr(
-        autosub_server,
-        "env_get",
-        lambda key, default="": "correct" if key == "AUTOSUB_ADMIN_PASSWORD" else default,
-    )
-
-    response = client.get("/admin/api-test", headers=_basic("arbitrary-user", "correct"))
-
-    assert response.status_code == 200
-
-
-@pytest.mark.parametrize("host", ["127.0.0.1", "0.0.0.0", "::"])
-def test_empty_admin_password_allows_access_regardless_of_bind_host(
-    client, monkeypatch, host
-):
-    def env_get(key, default=""):
-        if key == "AUTOSUB_ADMIN_PASSWORD":
-            return ""
-        if key == "AUTOSUB_HOST":
-            return host
-        return default
-
-    monkeypatch.setattr(autosub_server, "env_get", env_get)
-
-    response = client.get("/admin/api-test")
-
-    assert response.status_code == 200
 
 
 def test_csrf_cleanup_store_limit_and_process_local_reset(monkeypatch):
