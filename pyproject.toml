@@ -63,8 +63,12 @@ include = [
     "api_client.py",
     "autosub_server.py",
     "config.py",
+    "database_backup.py",
+    "database_errors.py",
+    "database_schema.py",
     "dashboard.py",
     "logger.py",
+    "migrations.py",
 ]
 exclude = [
     "tests",

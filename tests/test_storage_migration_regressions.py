@@ -5,6 +5,7 @@ import aiosqlite
 import pytest
 
 import storage as storage_module
+from database_errors import DatabaseMigrationError
 from storage import Storage, dict_factory
 
 
@@ -73,6 +74,7 @@ def test_new_database_pragmas_schema_version_and_reinitialization(tmp_path):
         store = Storage(db_path)
         await store.connect()
         assert await store.get_meta("schema_version") == "4"
+        assert store.last_backup_path is None
         for pragma, expected in [
             ("journal_mode", "wal"),
             ("foreign_keys", 1),
@@ -86,6 +88,7 @@ def test_new_database_pragmas_schema_version_and_reinitialization(tmp_path):
         reopened = Storage(db_path)
         await reopened.connect()
         assert await reopened.get_meta("schema_version") == "4"
+        assert reopened.last_backup_path is None
         await reopened.close()
 
     asyncio.run(exercise())
@@ -102,12 +105,17 @@ def test_migration_from_reconstructable_schema_versions_preserves_data(
         store = Storage(db_path)
         await store.connect()
         assert await store.get_meta("schema_version") == "4"
+        assert store.last_backup_path.parent == tmp_path / "shared" / "backups"
         async with store.conn.execute("PRAGMA table_info(node_catalog)") as cursor:
             node_columns = {row["name"] for row in await cursor.fetchall()}
         async with store.conn.execute("PRAGMA table_info(autoselects)") as cursor:
             auto_columns = {row["name"] for row in await cursor.fetchall()}
         assert {"canonical_id", "tag"} <= node_columns
         assert "tag_filter" in auto_columns
+        async with store.conn.execute("PRAGMA quick_check") as cursor:
+            assert next(iter((await cursor.fetchone()).values())) == "ok"
+        async with store.conn.execute("PRAGMA foreign_key_check") as cursor:
+            assert await cursor.fetchall() == []
         if version > 0:
             assert await store.get_client_groups("legacy-sub") == ["legacy"]
             assert any(
@@ -225,10 +233,6 @@ class _FaultyMigrationConnection:
         return self.inner.execute(sql, parameters)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Known issue: migration suppresses unexpected SQLite errors and advances schema_version",
-)
 def test_unexpected_migration_error_does_not_advance_schema_version(tmp_path):
     db_path = tmp_path / "migration-error.db"
     _create_legacy_database(db_path, 1)
@@ -239,8 +243,13 @@ def test_unexpected_migration_error_does_not_advance_schema_version(tmp_path):
         store = Storage(db_path)
         store.conn = _FaultyMigrationConnection(inner)
         try:
-            await store._init_schema()
+            with pytest.raises(DatabaseMigrationError):
+                await store._init_schema()
             assert await store.get_meta("schema_version") == "1"
+            async with inner.execute("PRAGMA table_info(node_catalog)") as cursor:
+                columns = {row["name"] for row in await cursor.fetchall()}
+            assert "canonical_id" not in columns
+            assert await store.get_client_groups("legacy-sub") == ["legacy"]
         finally:
             await inner.close()
 

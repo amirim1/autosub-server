@@ -189,8 +189,18 @@ fingerprints, and email addresses are masked. Responses also receive baseline se
 headers; administrative pages use `Cache-Control: no-store`.
 
 All AutoSub-managed files must remain under `/opt/autosub-server`: code, `.env`,
-SQLite, logs, the venv, and future backups. The future release layout reserves
-`/opt/autosub-server/shared/backups/` for backups.
+SQLite, logs, the venv, and backups.
+
+### SQLite migrations and backups
+
+Before an actual schema upgrade, AutoSub creates a consistent `data.db` copy through
+the SQLite backup API under `/opt/autosub-server/shared/backups/`. A new or already
+current database does not create a backup. An integrity, backup, or migration failure
+stops startup and rolls back both schema changes and the schema version.
+
+Restore is a manual operator action from a verified backup. Keep the backup until the
+new version has been validated. Backups have no automatic retention policy yet, so
+monitor the directory size.
 
 ### Client Group Resolution Priority:
 

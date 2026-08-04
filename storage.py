@@ -1,10 +1,16 @@
 import copy
 import json
 import asyncio
+import sqlite3
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 import aiosqlite
+
+from logger import logger
+from database_errors import DatabaseIntegrityError
+from migrations import MIGRATIONS, SCHEMA_VERSION, prepare_database
 
 
 SUPPORTED_AUTOSELECT_STRATEGIES = {"leastPing", "leastLoad"}
@@ -12,62 +18,6 @@ SUPPORTED_AUTOSELECT_STRATEGIES = {"leastPing", "leastLoad"}
 
 def normalize_autoselect_strategy(strategy):
     return strategy if strategy in SUPPORTED_AUTOSELECT_STRATEGIES else "leastPing"
-
-
-SCHEMA_VERSION = 4
-
-
-SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS meta (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS client_groups (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    sub_id TEXT NOT NULL,
-    email TEXT NOT NULL DEFAULT '',
-    groups TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE UNIQUE INDEX IF NOT EXISTS uq_client_groups_sub_id ON client_groups(sub_id);
-CREATE INDEX IF NOT EXISTS idx_client_groups_email ON client_groups(email);
-
-CREATE TABLE IF NOT EXISTS node_catalog (
-    fingerprint TEXT PRIMARY KEY,
-    canonical_id TEXT NOT NULL DEFAULT '',
-    name TEXT NOT NULL DEFAULT '',
-    protocol TEXT NOT NULL DEFAULT '',
-    address TEXT NOT NULL DEFAULT '',
-    port TEXT NOT NULL DEFAULT '',
-    network TEXT NOT NULL DEFAULT '',
-    security TEXT NOT NULL DEFAULT '',
-    tag TEXT NOT NULL DEFAULT '',
-    first_seen TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_node_catalog_name ON node_catalog(name);
-
-CREATE TABLE IF NOT EXISTS group_rules (
-    group_name TEXT NOT NULL,
-    autoselect_id TEXT NOT NULL,
-    PRIMARY KEY (group_name, autoselect_id)
-);
-
-CREATE TABLE IF NOT EXISTS autoselects (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    strategy TEXT NOT NULL DEFAULT 'leastPing',
-    selected_node_ids TEXT NOT NULL DEFAULT '[]',
-    tag_filter TEXT NOT NULL DEFAULT '[]',
-    enabled INTEGER NOT NULL DEFAULT 1
-);
-
-CREATE TABLE IF NOT EXISTS client_group_overrides (
-    key TEXT PRIMARY KEY,
-    groups TEXT NOT NULL DEFAULT ''
-);
-"""
 
 
 def dict_factory(cursor, row):
@@ -78,52 +28,62 @@ def dict_factory(cursor, row):
 
 
 class Storage:
-    def __init__(self, db_path):
+    def __init__(
+        self,
+        db_path,
+        *,
+        backup_dir=None,
+        migrations=None,
+        migration_fault_hook=None,
+    ):
         self.db_path = str(db_path)
+        db_file = Path(db_path)
+        self.backup_dir = Path(backup_dir) if backup_dir else db_file.parent / "shared" / "backups"
+        self.migrations = MIGRATIONS if migrations is None else migrations
+        self.migration_fault_hook = migration_fault_hook
+        self.last_backup_path = None
+        self._schema_version_before = "unknown"
         self._lock = asyncio.Lock()
         self.conn = None
 
     async def connect(self):
         self.conn = await aiosqlite.connect(self.db_path)
         self.conn.row_factory = dict_factory
-        await self.conn.execute("PRAGMA journal_mode=WAL")
-        await self.conn.execute("PRAGMA foreign_keys=ON")
-        await self._init_schema()
+        try:
+            await self.conn.execute("PRAGMA journal_mode=WAL")
+            await self.conn.execute("PRAGMA foreign_keys=ON")
+            await self.conn.execute("PRAGMA busy_timeout=5000")
+            await self._init_schema()
+        except sqlite3.DatabaseError as exc:
+            logger.exception(
+                "Database startup migration failed current_version=%s target_version=%s",
+                self._schema_version_before,
+                SCHEMA_VERSION,
+            )
+            await self.conn.close()
+            self.conn = None
+            raise DatabaseIntegrityError("SQLite database operation failed") from exc
+        except Exception:
+            logger.exception(
+                "Database startup migration failed current_version=%s target_version=%s",
+                self._schema_version_before,
+                SCHEMA_VERSION,
+            )
+            await self.conn.close()
+            self.conn = None
+            raise
 
     async def _init_schema(self):
         async with self._lock:
-            await self.conn.executescript(SCHEMA_SQL)
-            await self.conn.commit()
-        stored = await self.get_meta("schema_version", "0")
-        if int(stored) < SCHEMA_VERSION:
-            await self._migrate_schema(int(stored))
-            await self.set_meta("schema_version", str(SCHEMA_VERSION))
-
-    async def _migrate_schema(self, from_version):
-        async with self._lock:
-            if from_version < 1:
-                pass  # initial schema handles everything
-            if from_version < 2:
-                try:
-                    await self.conn.execute("ALTER TABLE node_catalog ADD COLUMN canonical_id TEXT NOT NULL DEFAULT ''")
-                except Exception:
-                    pass
-            if from_version < 3:
-                try:
-                    await self.conn.execute("ALTER TABLE node_catalog ADD COLUMN tag TEXT NOT NULL DEFAULT ''")
-                except Exception:
-                    pass
-                try:
-                    await self.conn.execute("ALTER TABLE autoselects ADD COLUMN tag_filter TEXT NOT NULL DEFAULT '[]'")
-                except Exception:
-                    pass
-            if from_version < 4:
-                try:
-                    await self.conn.execute("CREATE INDEX IF NOT EXISTS idx_client_groups_email ON client_groups(email)")
-                    await self.conn.execute("CREATE INDEX IF NOT EXISTS idx_node_catalog_name ON node_catalog(name)")
-                except Exception:
-                    pass
-            await self.conn.commit()
+            self.last_backup_path = await prepare_database(
+                self.conn,
+                self.backup_dir,
+                migrations=self.migrations,
+                fault_hook=self.migration_fault_hook,
+                version_observer=lambda version: setattr(
+                    self, "_schema_version_before", str(version)
+                ),
+            )
 
     async def close(self):
         if self.conn:
