@@ -42,7 +42,9 @@
 - `builder.py` — Логика генерации подписок, автовыбор (leastPing балансировщик), обогащение `address`/`port`, нормализация `vnext`/`servers` для VLESS/VMess/Trojan.
 - `autosub_server.py` — FastAPI веб-сервер, роуты `/json/{sub_id}`, `/admin`, `/health`, ограничение частоты запросов (rate limiting).
 - `storage.py` — Работа с SQLite базой данных (`data.db`), хранение групп клиентов, правил и пресетов автовыбора.
-- `api_client.py` — Взаимодействие с API 3x-ui / XUI панелей, кэширование оригинальных подписок.
+- `api_client.py` — Взаимодействие с API 3x-ui / XUI панелей.
+- `subscription_cache.py` — Ограниченный LRU/TTL-кэш готовых публичных подписок,
+  single-flight и stale-if-error.
 - `fingerprint.py` — Генерация уникальных идентификаторов нод (канонические хэши).
 - `config.py` — Загрузка конфигурации и переменных окружения (`.env`).
 - `dashboard.py` / `templates/` / `static/` — Панель администратора (HTML/JS/CSS).

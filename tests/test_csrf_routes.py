@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.responses import Response
 
 import autosub_server
 
@@ -125,6 +126,39 @@ def test_one_page_token_works_across_all_admin_forms(client):
         assert response.status_code == 303
 
     assert all(action.await_count == 1 for action in actions.values())
+
+
+def test_successful_admin_mutations_invalidate_public_cache(client):
+    test_client, _ = client
+    token = test_client.app.state.csrf_manager.generate()
+    initial = test_client.portal.call(test_client.app.state.subscription_cache.stats)
+
+    for index, (path, data, _) in enumerate(ADMIN_POST_ROUTES, start=1):
+        response = test_client.post(
+            path,
+            data={**data, "_csrf": token},
+            headers=_basic(),
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        stats = test_client.portal.call(test_client.app.state.subscription_cache.stats)
+        assert stats["generation"] == initial["generation"] + index
+
+
+def test_admin_preview_bypasses_public_subscription_cache(client, monkeypatch):
+    test_client, _ = client
+    preview = AsyncMock(return_value=Response("preview", media_type="text/html"))
+    monkeypatch.setattr(autosub_server, "render_preview", preview)
+    before = test_client.portal.call(test_client.app.state.subscription_cache.stats)
+
+    response = test_client.get(
+        "/admin/preview?sub_id=private", headers=_basic()
+    )
+
+    after = test_client.portal.call(test_client.app.state.subscription_cache.stats)
+    assert response.status_code == 200
+    assert after == before
+    preview.assert_awaited_once()
 
 
 def test_csrf_failure_does_not_log_or_return_token_or_secret(client, caplog):

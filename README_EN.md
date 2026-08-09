@@ -173,6 +173,21 @@ applies only to that self-signed API panel and does not disable verification for
 public upstream pool. It weakens interception protection and should be used only on a
 trusted network. No installation or public-route changes are required.
 
+### Built subscription cache
+
+Public JSON responses are cached in-process after the complete subscription build.
+The cache uses a monotonic clock, a 30-second fresh TTL plus a 300-second
+stale-if-error window, a 256-entry LRU capacity, and a 256 KiB UTF-8 payload limit
+per entry. The maximum retained payload is therefore about 64 MiB; actual memory
+use is higher because of Python objects and headers.
+
+Concurrent requests for one key share a single build, while different keys build
+in parallel. A stale value is served only for transient network failures or upstream
+HTTP 5xx responses. Keys contain SHA-256 digests, and successful dashboard mutations
+advance the cache generation. HTML and admin preview requests bypass this cache.
+The cache is local to one Uvicorn process; Redis is unnecessary for the supported
+single-process deployment.
+
 ---
 
 ## 📊 Dashboard & Management

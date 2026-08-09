@@ -21,6 +21,7 @@ from csrf import create_csrf_manager
 from storage import Storage
 from api_client import fetch_original_sub_html
 from http_clients import HttpClientManager
+from subscription_cache import SubscriptionCache
 from builder import build_for_subscription, discover_nodes_from_sub_id, resolve_security_flags
 from dashboard import (
     render_admin,
@@ -89,6 +90,26 @@ def _csrf_error(request: Request, token: object | None) -> Response | None:
     logger.warning("CSRF validation failed")
     return plain_error("CSRF validation failed", 403)
 
+
+def _subscription_cache_variant():
+    keys = (
+        "XUI_SUB_URL",
+        "XUI_API_URL",
+        "XUI_URL",
+        "XUI_USERNAME",
+        "XUI_PASSWORD",
+        "XUI_API_TOKEN",
+        "XUI_TLS_VERIFY",
+        "SUB_TITLE",
+        "SUB_USERINFO",
+    )
+    return "\0".join(str(env_get(key, "") or "") for key in keys)
+
+
+async def _invalidate_subscription_cache(request):
+    await request.app.state.subscription_cache.invalidate()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     admin_host = str(env_get("AUTOSUB_HOST", "127.0.0.1") or "")
@@ -107,7 +128,9 @@ async def lifespan(app: FastAPI):
     ensure_app_dir()
     await storage.connect()
     http_clients = HttpClientManager(env_getter=env_get)
+    subscription_cache = SubscriptionCache()
     app.state.http_clients = http_clients
+    app.state.subscription_cache = subscription_cache
     try:
         await http_clients.start()
         if CONFIG_PATH.exists():
@@ -126,9 +149,12 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         try:
-            await http_clients.close()
+            await subscription_cache.close()
         finally:
-            await storage.close()
+            try:
+                await http_clients.close()
+            finally:
+                await storage.close()
         logger.info("AutoSub Server stopped")
 
 
@@ -273,11 +299,23 @@ async def handle_json_route(sub_id: str, request: Request):
 
     try:
         query = request.url.query
-        output, ctype, sub_headers = await build_for_subscription(
+        subscription_cache = request.app.state.subscription_cache
+        cache_key = await subscription_cache.make_key(
             sub_id,
-            storage,
-            query=query,
-            http_manager=request.app.state.http_clients,
+            query,
+            variant=_subscription_cache_variant(),
+        )
+
+        async def build_subscription():
+            return await build_for_subscription(
+                sub_id,
+                storage,
+                query=query,
+                http_manager=request.app.state.http_clients,
+            )
+
+        output, ctype, sub_headers = await subscription_cache.get_or_build(
+            cache_key, build_subscription
         )
         
         SKIP_HEADERS = {
@@ -394,6 +432,7 @@ async def admin_save(request: Request):
         return csrf_error
     try:
         await save_admin_form(storage, parsed)
+        await _invalidate_subscription_cache(request)
         return RedirectResponse(url="/admin?msg=Настройки+успешно+сохранены", status_code=303)
     except Exception:
         logger.exception("Admin settings save failed")
@@ -413,6 +452,7 @@ async def admin_discover(request: Request, sub_id: str = Form(""), csrf: str = F
             sub_id, request.app.state.http_clients
         )
         await storage.set_node_catalog(nodes)
+        await _invalidate_subscription_cache(request)
         return RedirectResponse(url=f"/admin?msg=Каталог+успешно+обновлен:+{len(nodes)}+нод", status_code=303)
     except Exception:
         logger.exception("Admin node discovery failed")
@@ -427,6 +467,7 @@ async def admin_set_client_group(request: Request, csrf: str = Form("", alias="_
     sub_id = sub_id.strip()
     if sub_id:
         await storage.set_client_groups(sub_id, email.strip(), groups.strip())
+        await _invalidate_subscription_cache(request)
         return RedirectResponse(url="/admin?msg=Группа+клиента+успешно+обновлена", status_code=303)
     return RedirectResponse(url="/admin", status_code=303)
 
@@ -439,6 +480,7 @@ async def admin_delete_client_group(request: Request, csrf: str = Form("", alias
     sub_id = sub_id.strip()
     if sub_id:
         await storage.delete_client_groups(sub_id)
+        await _invalidate_subscription_cache(request)
         return RedirectResponse(url="/admin?msg=Назначение+клиента+удалено", status_code=303)
     return RedirectResponse(url="/admin", status_code=303)
 
@@ -461,6 +503,7 @@ async def admin_add_autoselect(
     if autoselect_id and name:
         try:
             await storage.add_autoselect(autoselect_id, name, strategy=strategy)
+            await _invalidate_subscription_cache(request)
             return RedirectResponse(url=f"/admin?msg=Балансировщик+{name}+успешно+создан", status_code=303)
         except Exception:
             logger.exception("Admin autoselect creation failed")
@@ -481,6 +524,7 @@ async def admin_delete_autoselect(
     if autoselect_id:
         try:
             await storage.delete_autoselect(autoselect_id)
+            await _invalidate_subscription_cache(request)
             return RedirectResponse(url="/admin?msg=Балансировщик+удален", status_code=303)
         except Exception:
             logger.exception("Admin autoselect deletion failed")

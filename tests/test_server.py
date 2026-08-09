@@ -77,12 +77,18 @@ def test_client_ip_falls_back_safely_for_malformed_headers(monkeypatch):
 def test_lifespan_closes_http_client_and_storage(monkeypatch, tmp_path):
     fake_storage = AsyncMock()
     fake_manager = AsyncMock()
+    fake_cache = AsyncMock()
+    close_order = []
+    fake_cache.close.side_effect = lambda: close_order.append("cache")
+    fake_manager.close.side_effect = lambda: close_order.append("http")
+    fake_storage.close.side_effect = lambda: close_order.append("storage")
     monkeypatch.setattr(autosub_server, "storage", fake_storage)
     monkeypatch.setattr(
         autosub_server,
         "HttpClientManager",
         lambda env_getter: fake_manager,
     )
+    monkeypatch.setattr(autosub_server, "SubscriptionCache", lambda: fake_cache)
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
 
@@ -94,8 +100,10 @@ def test_lifespan_closes_http_client_and_storage(monkeypatch, tmp_path):
 
     fake_storage.connect.assert_awaited_once()
     fake_manager.start.assert_awaited_once()
+    fake_cache.close.assert_awaited_once()
     fake_manager.close.assert_awaited_once()
     fake_storage.close.assert_awaited_once()
+    assert close_order == ["cache", "http", "storage"]
 
 
 @pytest.fixture

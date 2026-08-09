@@ -1,3 +1,5 @@
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -5,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import autosub_server
+from logging_utils import get_request_id
 
 
 @pytest.fixture
@@ -136,3 +139,41 @@ def test_invalid_json_body_is_returned_with_json_content_type(client, monkeypatc
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/json")
     assert response.text == "not-json"
+
+
+def test_concurrent_http_waiters_share_build_but_keep_request_ids(client, monkeypatch):
+    calls = 0
+    build_request_ids = []
+
+    async def build(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        build_request_ids.append(get_request_id())
+        await asyncio.sleep(0.05)
+        return '[{"name":"cached"}]', "application/json", {}
+
+    monkeypatch.setattr(autosub_server, "build_for_subscription", build)
+    monkeypatch.setattr(
+        autosub_server, "resolve_security_flags", AsyncMock(return_value={})
+    )
+
+    def fetch(index):
+        return client.get(
+            "/json/shared?client=happ",
+            headers={"X-Request-ID": f"untrusted-{index}"},
+        )
+
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        responses = list(executor.map(fetch, range(20)))
+
+    request_ids = {response.headers["x-request-id"] for response in responses}
+    assert calls == 1
+    assert build_request_ids == ["-"]
+    assert len(request_ids) == 20
+    assert all(response.json() == [{"name": "cached"}] for response in responses)
+    assert all("untrusted-" not in response.text for response in responses)
+    assert all(
+        request_id not in response.text
+        for request_id in request_ids
+        for response in responses
+    )

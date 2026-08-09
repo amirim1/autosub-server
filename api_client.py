@@ -10,6 +10,7 @@ from http_client_errors import (
     HttpClientNotStartedError,
     UpstreamAuthenticationError,
     UpstreamResponseError,
+    UpstreamServerError,
 )
 from http_client_config import MAX_HTML_BYTES, MAX_JSON_BYTES, MAX_SUBSCRIPTION_BYTES
 
@@ -18,23 +19,7 @@ def join_url(base, path):
     return base.rstrip("/") + "/" + path.lstrip("/")
 
 
-_sub_cache = {}
-_sub_cache_ttl = 30  # seconds
-_sub_cache_lock = asyncio.Lock()
-
-
 async def fetch_original_subscription(sub_id, query="", client_manager=None):
-    cache_key = f"{sub_id}:{query}"
-    now = time.time()
-    
-    async with _sub_cache_lock:
-        if cache_key in _sub_cache:
-            data, ctype, headers, expiry = _sub_cache[cache_key]
-            if expiry >= now:
-                return data, ctype, headers
-            else:
-                _sub_cache.pop(cache_key, None)
-
     xui_url = env_get("XUI_SUB_URL", env_get("XUI_URL", ""))
     if not xui_url:
         raise RuntimeError("XUI_SUB_URL is not configured in .env")
@@ -51,18 +36,11 @@ async def fetch_original_subscription(sub_id, query="", client_manager=None):
         max_bytes=MAX_SUBSCRIPTION_BYTES,
         headers={"User-Agent": "AutoSub/1.0"},
     )
+    if resp.status_code >= 500:
+        raise UpstreamServerError("upstream subscription is temporarily unavailable")
     if not 200 <= resp.status_code < 300:
         raise UpstreamResponseError("upstream subscription returned an error")
     ctype = resp.headers.get("Content-Type", "application/octet-stream")
-
-    async with _sub_cache_lock:
-        expired = [k for k, v in _sub_cache.items() if v[3] < time.time()]
-        for k in expired:
-            _sub_cache.pop(k, None)
-        if len(_sub_cache) > 1000:
-            _sub_cache.clear()
-        _sub_cache[cache_key] = (resp.text, ctype, resp.headers, time.time() + _sub_cache_ttl)
-
     return resp.text, ctype, resp.headers
 
 

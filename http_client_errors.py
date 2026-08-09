@@ -30,5 +30,9 @@ class UpstreamResponseError(HttpClientError):
     pass
 
 
+class UpstreamServerError(UpstreamResponseError):
+    pass
+
+
 class UpstreamResponseTooLargeError(UpstreamResponseError):
     pass

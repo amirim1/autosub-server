@@ -8,7 +8,9 @@ AutoSub Server — локальный прокси JSON-подписок для 
 
 - `autosub_server.py` — FastAPI lifecycle, маршруты `/json/{sub_id}`, `/sub/{sub_id}`, `/admin`, `/health` и security controls.
 - `builder.py` — разбор, нормализация и генерация Xray-профилей.
-- `api_client.py` — HTTP/API-клиент 3x-ui и кэш upstream.
+- `api_client.py` — HTTP/API-клиент 3x-ui без собственного response cache.
+- `subscription_cache.py` — bounded LRU/TTL-кэш готовых публичных подписок,
+  per-key single-flight, stale-if-error и поколенческая инвалидация.
 - `http_clients.py`, `http_client_config.py`, `http_client_errors.py` — lifespan-managed HTTP pools, panel-session isolation, limits and safe network errors.
 - `storage.py` — асинхронная SQLite persistence и миграции.
 - `dashboard.py`, `templates/`, `static/` — админ-интерфейс.
@@ -26,12 +28,16 @@ Python 3.10+, FastAPI, Uvicorn, httpx, aiosqlite, Jinja2, pytest, pytest-asyncio
 - Для forwarded-заголовков используется явный список trusted proxies.
 - API 3x-ui предпочитает Bearer token, login/password — fallback.
 - HTTP clients создаются и закрываются через FastAPI lifespan: один stateless upstream pool и bounded изолированные panel sessions.
+- Кэш готовых подписок process-local: 256 записей, 30 секунд fresh, 300 секунд
+  stale-if-error, максимум 256 KiB payload на запись; Redis не используется.
 - Рабочая ветка — `dev`, production — `main`.
 - `XUI_SUB_URL` используется для получения подписки; `XUI_API_URL` — для API панели; `XUI_URL` — fallback.
 
 ## Current State
 
-Последняя проверка 2026-08-09: `python -m pytest -q` — 237 passed, 2 strict xfailed и 1 Starlette/httpx deprecation warning. Upstream HTTP использует lifespan-managed clients; известные xfail — cache stampede и malformed config marker.
+Последняя проверка 2026-08-09: `python -m pytest -q` — 258 passed, 1 strict xfailed
+и 1 Starlette/httpx deprecation warning. Cache stampede устранён; единственный
+известный xfail — malformed config marker.
 
 ## Known Problems
 

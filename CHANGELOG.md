@@ -4,6 +4,16 @@ All notable changes to AutoSub Server will be documented in this file.
 
 ## [v2.1.0] - 2026-07-31
 
+2026-08-09: Добавлен ограниченный process-local LRU/TTL-кэш готовых публичных
+подписок: SHA-256 ключи, per-key single-flight, stale-if-error для временных
+upstream-сбоев, поколенческая инвалидация после admin-изменений и безопасное
+завершение через FastAPI lifespan. Публичные маршруты и форматы ответов сохранены.
+
+2026-08-09: Added a bounded process-local LRU/TTL cache for fully built public
+subscriptions, with SHA-256 keys, per-key single-flight, stale-if-error for transient
+upstream failures, generation invalidation after admin mutations, and lifespan-safe
+shutdown. Public routes and response formats remain unchanged.
+
 2026-08-09: Перенести upstream HTTP-клиенты под управление FastAPI lifespan:
 переиспользовать bounded connection pools, изолировать 3x-ui sessions, добавить
 явные phase timeouts и response-size limits, безопасную ротацию credentials и

@@ -11,6 +11,7 @@ from http_client_errors import (
     UpstreamTimeoutError,
 )
 from http_clients import HttpClientManager
+from subscription_cache import SubscriptionCache
 
 
 class TrackingClientFactory:
@@ -43,8 +44,6 @@ async def run_managed(factory, action):
 
 @pytest.fixture(autouse=True)
 def reset_http_state(monkeypatch):
-    api_client._sub_cache.clear()
-
     def env_get(key, default=""):
         if key == "XUI_SUB_URL":
             return "https://subscriptions.example.test"
@@ -52,7 +51,6 @@ def reset_http_state(monkeypatch):
 
     monkeypatch.setattr(api_client, "env_get", env_get)
     yield
-    api_client._sub_cache.clear()
 
 
 def test_successful_json_fetch_reuses_and_closes_managed_client():
@@ -116,7 +114,6 @@ def test_subscription_http_errors_are_safe_and_not_cached(status):
 
     asyncio.run(run_managed(TrackingClientFactory(handler), exercise))
     assert calls == 2
-    assert "error-sub:" not in api_client._sub_cache
 
 
 @pytest.mark.parametrize(
@@ -169,82 +166,22 @@ def test_empty_or_invalid_subscription_body_fails_normalization(body):
         api_client.normalize_subscription(text)
 
 
-def test_cache_hit_avoids_second_upstream_request():
-    calls = 0
-
-    def handler(request):
-        nonlocal calls
-        calls += 1
-        return httpx.Response(200, json=[])
-
-    async def exercise(manager):
-        await api_client.fetch_original_subscription("same", "a=1", client_manager=manager)
-        await api_client.fetch_original_subscription("same", "a=1", client_manager=manager)
-
-    asyncio.run(run_managed(TrackingClientFactory(handler), exercise))
-    assert calls == 1
-
-
-def test_cache_ttl_expiration_uses_upstream_again(monkeypatch):
-    calls = 0
-    clock = {"now": 1000.0}
-
-    def handler(request):
-        nonlocal calls
-        calls += 1
-        return httpx.Response(200, json=[])
-
-    monkeypatch.setattr(api_client.time, "time", lambda: clock["now"])
-
-    async def exercise(manager):
-        await api_client.fetch_original_subscription("ttl", client_manager=manager)
-        clock["now"] += api_client._sub_cache_ttl + 1
-        await api_client.fetch_original_subscription("ttl", client_manager=manager)
-
-    asyncio.run(run_managed(TrackingClientFactory(handler), exercise))
-    assert calls == 2
-
-
-def test_cache_keys_preserve_legacy_identity():
-    calls = 0
-
-    def handler(request):
-        nonlocal calls
-        calls += 1
-        return httpx.Response(200, json=[])
-
-    async def exercise(manager):
-        await api_client.fetch_original_subscription("sub-a", "a=1&b=2", client_manager=manager)
-        await api_client.fetch_original_subscription("sub-b", "a=1&b=2", client_manager=manager)
-        await api_client.fetch_original_subscription("sub-a", "b=2&a=1", client_manager=manager)
-
-    asyncio.run(run_managed(TrackingClientFactory(handler), exercise))
-    assert calls == 3
-    assert set(api_client._sub_cache) == {
-        "sub-a:a=1&b=2",
-        "sub-b:a=1&b=2",
-        "sub-a:b=2&a=1",
-    }
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="Known issue: concurrent misses are not coalesced by per-key single-flight",
-)
 def test_concurrent_cache_miss_is_single_flight():
     calls = 0
 
-    async def handler(request):
+    async def build():
         nonlocal calls
         calls += 1
         await asyncio.sleep(0)
-        return httpx.Response(200, json=[])
+        return "[]", "application/json", {}
 
-    async def exercise(manager):
+    async def exercise():
+        cache = SubscriptionCache()
+        key = await cache.make_key("stampede")
         await asyncio.gather(
-            api_client.fetch_original_subscription("stampede", client_manager=manager),
-            api_client.fetch_original_subscription("stampede", client_manager=manager),
+            *(cache.get_or_build(key, build) for _ in range(50))
         )
+        await cache.close()
 
-    asyncio.run(run_managed(TrackingClientFactory(handler), exercise))
+    asyncio.run(exercise())
     assert calls == 1

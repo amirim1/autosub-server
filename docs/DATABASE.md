@@ -1,0 +1,30 @@
+# AutoSub Server Database
+
+## Storage
+
+The application uses SQLite through `aiosqlite`. The path is controlled by `AUTOSUB_DB`; the default is under `AUTOSUB_APP_DIR` and production normally uses `/opt/autosub-server/data.db`.
+
+## Tables
+
+- `meta` — schema/configuration metadata and migration markers.
+- `client_groups` — primary group assignment and client email keyed by subscription ID.
+- `node_catalog` — discovered nodes, fingerprints, canonical IDs, protocol, address, port, network, security and display tag.
+- `group_rules` — maps client group names to autoselect IDs.
+- `autoselects` — autoselect definitions, strategy, selected node IDs, tag filters and enabled state.
+- `client_group_overrides` — explicit group overrides keyed by a stable key such as email or subscription identifier.
+
+Relationships are application-enforced: `group_rules.autoselect_id` refers to an autoselect definition, while selected node IDs refer to the current node catalog. Deleting an autoselect also removes its group rules.
+
+## Migrations
+
+`Storage.connect()` creates the schema and reads the stored schema version. Existing databases are upgraded with targeted `ALTER TABLE` operations for added node and autoselect fields. Do not edit schema definitions without a forward migration and regression tests.
+
+At startup `autosub_server.py` checks `AUTOSUB_CONFIG`/legacy `config.json` and calls `migrate_from_config()` when appropriate. The migration is intended to be one-time and preserves legacy settings in SQLite.
+
+## Data Safety Rules
+
+- Back up `data.db` before deployment or migration.
+- Use temporary databases in tests; do not use the production database.
+- Keep migrations backward-compatible and idempotent.
+- Avoid destructive table rewrites and unbounded data deletion.
+- Verify commits and close the async connection in lifecycle tests.
