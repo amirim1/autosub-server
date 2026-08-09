@@ -30,7 +30,7 @@ def client(monkeypatch, tmp_path):
         ("/sub/sub-1", "application/json", "UnknownClient/1.0", "json"),
         ("/sub/sub-1", "text/html", "UnknownClient/1.0", "html"),
         ("/sub/sub-1", "text/html", "Happ/3.0", "html"),
-        ("/sub/sub-1", "application/json", "Mozilla/5.0", "html"),
+        ("/sub/sub-1", "application/json", "Mozilla/5.0", "json"),
         ("/sub/sub-1", None, "Mozilla/5.0", "html"),
         ("/sub/sub-1", None, "UnknownClient/1.0", "json"),
     ],
@@ -39,9 +39,7 @@ def test_current_html_json_negotiation(
     client, monkeypatch, path, accept, user_agent, expected_kind
 ):
     build = AsyncMock(return_value=('[{"kind":"json"}]', "application/json", {}))
-    html = AsyncMock(return_value=("<html>upstream</html>", "text/html", 202))
     monkeypatch.setattr(autosub_server, "build_for_subscription", build)
-    monkeypatch.setattr(autosub_server, "fetch_original_sub_html", html)
     monkeypatch.setattr(
         autosub_server, "resolve_security_flags", AsyncMock(return_value={})
     )
@@ -54,17 +52,16 @@ def test_current_html_json_negotiation(
     response = client.get(path, headers=headers)
 
     if expected_kind == "html":
-        assert response.status_code == 202
+        assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/html")
-        assert response.text == "<html>upstream</html>"
-        html.assert_awaited_once()
-        build.assert_not_awaited()
+        assert "Подписка AutoSub готова" in response.text
+        assert "upstream" not in response.text
+        build.assert_awaited_once()
     else:
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("application/json")
         assert response.json() == [{"kind": "json"}]
         build.assert_awaited_once()
-        html.assert_not_awaited()
 
 
 def test_query_string_is_forwarded_verbatim(client, monkeypatch):
@@ -98,26 +95,22 @@ def test_json_route_returns_safe_500_for_upstream_failure(client, monkeypatch):
     assert "traceback" not in response.text.lower()
 
 
-def test_html_failure_falls_back_to_json(client, monkeypatch):
+def test_html_failure_returns_local_error(client, monkeypatch):
     monkeypatch.setattr(
         autosub_server,
-        "fetch_original_sub_html",
-        AsyncMock(side_effect=RuntimeError("html unavailable")),
-    )
-    build = AsyncMock(return_value=("[]", "application/json", {}))
-    monkeypatch.setattr(autosub_server, "build_for_subscription", build)
-    monkeypatch.setattr(
-        autosub_server, "resolve_security_flags", AsyncMock(return_value={})
+        "build_for_subscription",
+        AsyncMock(side_effect=RuntimeError("private upstream failure")),
     )
 
     response = client.get(
         "/sub/fallback", headers={"Accept": "text/html", "User-Agent": "Mozilla/5.0"}
     )
 
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("application/json")
-    assert response.json() == []
-    build.assert_awaited_once()
+    assert response.status_code == 502
+    assert response.headers["content-type"].startswith("text/html")
+    assert "Подписка временно недоступна" in response.text
+    assert response.headers["x-request-id"] in response.text
+    assert "private upstream failure" not in response.text
 
 
 def test_invalid_json_body_is_returned_with_json_content_type(client, monkeypatch):

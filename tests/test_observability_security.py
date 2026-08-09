@@ -240,7 +240,9 @@ def test_security_headers_cover_success_admin_401_404_and_500(
     assert unauthorized.headers["cache-control"] == "no-store"
 
 
-def test_admin_csp_cache_control_static_js_and_upstream_html(client, monkeypatch):
+def test_admin_csp_cache_control_static_js_and_local_subscription_html(
+    client, monkeypatch
+):
     admin = client.get("/admin")
     _assert_base_security_headers(admin)
     assert admin.headers["cache-control"] == "no-store"
@@ -255,13 +257,12 @@ def test_admin_csp_cache_control_static_js_and_upstream_html(client, monkeypatch
     ).read_text(encoding="utf-8")
     assert "function showToast" in javascript
 
-    monkeypatch.setattr(
-        autosub_server,
-        "fetch_original_sub_html",
-        AsyncMock(return_value=("<html>upstream</html>", "text/html", 200)),
-    )
-    upstream = client.get(
+    local_page = client.get(
         "/sub/test", headers={"Accept": "text/html", "User-Agent": "Mozilla/5.0"}
     )
-    _assert_base_security_headers(upstream)
-    assert "content-security-policy" not in upstream.headers
+    _assert_base_security_headers(local_page)
+    assert local_page.headers["cache-control"] == "no-store"
+    local_policy = local_page.headers["content-security-policy"]
+    assert "script-src 'self'" in local_policy
+    assert "style-src 'self'" in local_policy
+    assert "unsafe-inline" not in local_policy

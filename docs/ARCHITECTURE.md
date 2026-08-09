@@ -13,6 +13,8 @@ AutoSub Server — локальный FastAPI-прокси для JSON-подп�
   per-key single-flight and stale-if-error.
 - `rate_limiter.py` — bounded process-local sliding-window limiter and validated
   trusted-proxy client-IP resolution.
+- `subscription_representation.py` — deterministic `/sub/` representation selection
+  and rendering of the local safe subscription page.
 - `storage.py` — async SQLite connection, schema creation, migrations and CRUD.
 - `dashboard.py` — admin view rendering, form parsing and persistence orchestration.
 - `config.py` — environment loading, application paths and defaults.
@@ -25,10 +27,14 @@ AutoSub Server — локальный FastAPI-прокси для JSON-подп�
 1. Client calls `/json/{sub_id}` or `/sub/{sub_id}`.
 2. Server determines client IP using the validated trusted-proxy allowlist and
    applies the public rate policy before cache or upstream work.
-3. Legacy `/sub/` requests from browsers may fetch and return upstream 3x-ui HTML; subscription clients receive generated JSON.
-4. `builder.build_for_subscription()` fetches the upstream subscription through `api_client.py`.
-5. Builder resolves client groups, group rules and autoselect definitions through `storage.py`.
-6. Profiles are normalized, generated profiles are prepended, and subscription headers are returned.
+3. `/json/` always selects generated JSON. Legacy `/sub/` applies explicit
+   `format=json|html`, weighted `Accept`, client compatibility and safe fallback rules.
+4. `builder.build_for_subscription()` fetches the upstream JSON subscription through
+   `api_client.py`; the built result remains protected by the existing cache.
+5. For HTML, only readiness is taken from the built result; AutoSub renders its own
+   autoescaped template and never returns the upstream body as HTML.
+6. Builder resolves client groups, group rules and autoselect definitions through `storage.py`.
+7. Profiles are normalized, generated profiles are prepended, and subscription headers are returned.
 
 ## Module Responsibilities
 
@@ -42,6 +48,8 @@ AutoSub Server — локальный FastAPI-прокси для JSON-подп�
   `AUTOSUB_TRUSTED_PROXIES`; XFF chains are evaluated right-to-left.
 - A bounded process-local limiter separates public, admin-auth and expensive-admin
   policies. It is not shared between Uvicorn workers and requires no Redis.
+- Public HTML is local-only, carries a strict self-only CSP and `no-store`, and never
+  receives upstream markup, redirects, credentials or panel URLs.
 - Upstream TLS verification is enabled by default through `XUI_TLS_VERIFY`.
 - Tokens, passwords and `.env` contents must never be committed or logged.
 - Nginx should expose `/json/` and `/sub/`; the local admin port should normally be reached through an SSH tunnel.

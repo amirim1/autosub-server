@@ -6,7 +6,7 @@ import secrets
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response, Depends, Form, HTTPException, status
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import uvicorn
@@ -17,10 +17,17 @@ from logging_utils import fingerprint_secret
 from http_security import RequestContextMiddleware, json_error, plain_error
 from csrf import create_csrf_manager
 from storage import Storage
-from api_client import fetch_original_sub_html
 from http_clients import HttpClientManager
 from subscription_cache import SubscriptionCache
 from rate_limiter import ClientIpResolver, RateLimiter, RateLimitPolicy
+from subscription_representation import (
+    SubscriptionRepresentation,
+    UnsupportedSubscriptionFormat,
+    render_subscription_page,
+    select_subscription_representation,
+    strip_format_query,
+    subscription_css_path,
+)
 from builder import build_for_subscription, discover_nodes_from_sub_id, resolve_security_flags
 from dashboard import (
     render_admin,
@@ -264,53 +271,68 @@ async def health():
     return PlainTextResponse(f"AutoSub Server v{VERSION} OK")
 
 
+@app.get("/sub/_assets/subscription.css", include_in_schema=False)
+async def subscription_stylesheet():
+    return FileResponse(
+        subscription_css_path,
+        media_type="text/css",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+async def _get_cached_subscription(request, sub_id, query):
+    subscription_cache = request.app.state.subscription_cache
+    cache_key = await subscription_cache.make_key(
+        sub_id,
+        query,
+        variant=_subscription_cache_variant(),
+    )
+
+    async def build_subscription():
+        return await build_for_subscription(
+            sub_id,
+            storage,
+            query=query,
+            http_manager=request.app.state.http_clients,
+        )
+
+    return await subscription_cache.get_or_build(cache_key, build_subscription)
+
+
 @app.get("/json/{sub_id}")
 @app.get("/sub/{sub_id}")
 async def handle_json_route(sub_id: str, request: Request):
     await _enforce_rate_limit(request, PUBLIC_RATE_LIMIT)
 
-    # Detect if request is coming from a web browser (e.g., Chrome/Firefox opening /sub/ link)
-    accept_header = request.headers.get("accept", "").lower()
-    user_agent = request.headers.get("user-agent", "").lower()
-    is_browser = "text/html" in accept_header or (
-        "mozilla/" in user_agent
-        and not any(client in user_agent for client in ["v2ray", "happ", "nekobox", "sing-box", "clash", "shadowrocket", "stash", "surge", "foxray", "streisand", "passwall", "openwrt"])
-    )
+    is_json_route = request.url.path.startswith("/json/")
+    try:
+        representation = select_subscription_representation(
+            is_json_route=is_json_route,
+            format_values=request.query_params.getlist("format"),
+            accept=request.headers.get("accept", ""),
+            user_agent=request.headers.get("user-agent", ""),
+        )
+    except UnsupportedSubscriptionFormat:
+        return json_error("Unsupported subscription format", 400)
 
-    if is_browser and request.url.path.startswith("/sub/"):
+    query = request.url.query
+    if not is_json_route:
+        query = strip_format_query(query)
+
+    if representation is SubscriptionRepresentation.HTML:
         try:
-            html_content, ctype, status_code = await fetch_original_sub_html(
-                sub_id,
-                request.headers,
-                client_manager=request.app.state.http_clients,
-            )
-            return HTMLResponse(content=html_content, status_code=status_code)
-        except Exception as err:
-            logger.warning(
-                "Failed to proxy upstream HTML sub_id_hash=%s error_type=%s",
+            await _get_cached_subscription(request, sub_id, query)
+        except Exception:
+            logger.exception(
+                "Subscription landing validation failed sub_id_hash=%s",
                 fingerprint_secret(sub_id),
-                type(err).__name__,
             )
+            return render_subscription_page(request, sub_id, error=True, status_code=502)
+        return render_subscription_page(request, sub_id)
 
     try:
-        query = request.url.query
-        subscription_cache = request.app.state.subscription_cache
-        cache_key = await subscription_cache.make_key(
-            sub_id,
-            query,
-            variant=_subscription_cache_variant(),
-        )
-
-        async def build_subscription():
-            return await build_for_subscription(
-                sub_id,
-                storage,
-                query=query,
-                http_manager=request.app.state.http_clients,
-            )
-
-        output, ctype, sub_headers = await subscription_cache.get_or_build(
-            cache_key, build_subscription
+        output, ctype, sub_headers = await _get_cached_subscription(
+            request, sub_id, query
         )
         
         SKIP_HEADERS = {

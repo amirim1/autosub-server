@@ -75,19 +75,19 @@ def test_public_429_has_required_headers_and_skips_builder(client, monkeypatch):
     assert cache_calls == 2
 
 
-def test_public_limit_runs_before_legacy_html_fetch(client, monkeypatch):
+def test_public_limit_runs_before_local_html_build(client, monkeypatch):
     test_client, _ = client
     monkeypatch.setattr(
         autosub_server, "PUBLIC_RATE_LIMIT", RateLimitPolicy("html-test", 1, 60)
     )
-    html = AsyncMock(return_value=("<html>ok</html>", "text/html", 200))
-    monkeypatch.setattr(autosub_server, "fetch_original_sub_html", html)
+    build = AsyncMock(return_value=("[]", "application/json", {}))
+    monkeypatch.setattr(autosub_server, "build_for_subscription", build)
     headers = {"Accept": "text/html", "User-Agent": "Mozilla/5.0"}
 
     assert test_client.get("/sub/id", headers=headers).status_code == 200
     rejected = test_client.get("/sub/id", headers=headers)
     assert rejected.status_code == 429
-    html.assert_awaited_once()
+    build.assert_awaited_once()
 
 
 def test_admin_auth_attempts_are_limited_before_handler(client, monkeypatch):

@@ -7,7 +7,9 @@
 
 It intercepts `/json/<subId>` and `/sub/<subId>` requests from a reverse-proxy port, fetches the original JSON subscription from 3x-ui, generates and prepends allowed autoselect profiles (configurable `leastPing` or `leastLoad` balancer) to the profile list, and appends original nodes unchanged after them.
 
-For legacy `/sub/<subId>` URLs, it automatically differentiates requests: web browsers get 3x-ui's native HTML subscription landing page (with user traffic stats and client links), while VPN clients receive the enriched AutoSub JSON.
+For legacy `/sub/<subId>` URLs, browsers receive a safe local AutoSub landing page,
+while VPN clients receive the enriched AutoSub JSON. Untrusted 3x-ui HTML is never
+proxied into the AutoSub origin.
 
 > [Русскоязычная документация доступна в [README.md](README.md).]
 
@@ -166,7 +168,7 @@ is bounded to 16 entries.
 Connect/read/write/pool timeouts are `5/20/10/5` seconds for the panel API and
 `5/30/10/5` seconds for subscription reads. The pool is limited to 20 connections,
 10 keep-alive connections, and a 30-second keep-alive expiry. Responses are limited
-to 4 MiB for panel JSON, 8 MiB for subscriptions, and 1 MiB for HTML. Redirects are
+to 4 MiB for panel JSON, 8 MiB for subscriptions, and 1 MiB for panel-login HTML. Redirects are
 not followed automatically.
 
 TLS certificates are verified by default. Existing `XUI_TLS_VERIFY=false` support
@@ -185,9 +187,26 @@ use is higher because of Python objects and headers.
 Concurrent requests for one key share a single build, while different keys build
 in parallel. A stale value is served only for transient network failures or upstream
 HTTP 5xx responses. Keys contain SHA-256 digests, and successful dashboard mutations
-advance the cache generation. HTML and admin preview requests bypass this cache.
+advance the cache generation. The local HTML page uses the cache only to validate
+JSON readiness, but its HTML and request ID are never cached; admin preview bypasses
+the cache.
 The cache is local to one Uvicorn process; Redis is unnecessary for the supported
 single-process deployment.
+
+### Subscription representations
+
+`/json/{sub_id}` always returns generated JSON regardless of `Accept` or User-Agent.
+Legacy `/sub/{sub_id}` supports `?format=json` and `?format=html`; an explicit format
+wins over `Accept`, followed by weighted `application/json`, `text/plain`, and
+`text/html`. `*/*`, a missing `Accept`, and unknown clients safely default to JSON,
+with a Mozilla User-Agent retained as a final browser fallback.
+
+HTML is rendered from a local autoescaped Jinja template with a strict CSP, local
+CSS, `Referrer-Policy: no-referrer`, and `Cache-Control: no-store`. Upstream HTML,
+redirects, credentials, and panel URLs are not inserted into the page. AutoSub has
+no separate raw/base64 representation; the compatible machine representation remains JSON.
+CSS is served at `/sub/_assets/subscription.css`, so the existing Nginx `/sub/`
+location needs no expansion and does not expose admin assets.
 
 ### Rate limiting
 
@@ -289,7 +308,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # Legacy Base64 subscription URLs (serves HTML to web browsers, JSON to VPN apps)
+    # Legacy URLs (serves local AutoSub HTML to browsers, JSON to VPN apps)
     location /sub/ {
         proxy_pass http://127.0.0.1:25500/sub/;
         proxy_set_header Host $host;

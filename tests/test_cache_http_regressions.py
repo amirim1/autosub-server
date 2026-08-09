@@ -79,25 +79,6 @@ def test_successful_json_fetch_reuses_and_closes_managed_client():
     assert factory.clients[0].is_closed
 
 
-def test_successful_html_fetch_preserves_status():
-    factory = TrackingClientFactory(
-        lambda request: httpx.Response(
-            201, content=b"<html>ok</html>", headers={"Content-Type": "text/html"}
-        )
-    )
-
-    async def exercise(manager):
-        return await api_client.fetch_original_sub_html(
-            "html-sub", {"accept": "text/html"}, client_manager=manager
-        )
-
-    body, content_type, status = asyncio.run(run_managed(factory, exercise))
-
-    assert body == "<html>ok</html>"
-    assert content_type == "text/html"
-    assert status == 201
-
-
 @pytest.mark.parametrize("status", [400, 404, 500, 503])
 def test_subscription_http_errors_are_safe_and_not_cached(status):
     calls = 0

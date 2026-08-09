@@ -33,6 +33,7 @@ curl http://127.0.0.1:25500/health
 ```bash
 python -m pytest -q
 python -m pytest tests/test_rate_limiter.py tests/test_rate_limit_routes.py -q
+python -m pytest tests/test_subscription_representation.py -q
 python -m compileall -q *.py
 ```
 
@@ -51,6 +52,10 @@ bash -n install.sh update.sh setup_nginx.sh finish_setup.sh
 4. Add or update a regression test for behavior changes.
 5. Run the relevant tests and report exact results.
 6. Do not commit or push unless explicitly requested.
+
+When changing `/sub/`, preserve `/json/` as an unconditional JSON endpoint and add
+tests for explicit format priority, weighted `Accept`, unknown/VPN clients, local
+template autoescape, CSP, cache behavior, and malicious upstream HTML.
 
 ## Deployment Commands
 

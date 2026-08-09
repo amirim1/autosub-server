@@ -12,11 +12,27 @@ Returns plain text such as `AutoSub Server v<version> OK`.
 
 ### `GET /json/{sub_id}`
 
-Fetches the original 3x-ui subscription and returns generated JSON. `sub_id` is the subscription/client identifier. Query parameters are passed to the builder/upstream path as supported by the existing implementation. Responses may include subscription metadata headers. Rate-limit failures return HTTP 429 with a JSON error body and `Retry-After`; unexpected failures return HTTP 500.
+Fetches the original 3x-ui subscription and returns generated JSON. `sub_id` is the subscription/client identifier. This endpoint remains JSON even when `Accept: text/html` or a browser User-Agent is supplied. Query parameters are passed to the builder/upstream path as supported by the existing implementation. Responses may include subscription metadata headers. Rate-limit failures return HTTP 429 with a JSON error body and `Retry-After`; unexpected failures return HTTP 500.
 
 ### `GET /sub/{sub_id}`
 
-Legacy-compatible route. Browser-like requests may receive the upstream HTML page; VPN clients receive the generated JSON subscription. Preserve this content negotiation when changing the route.
+Legacy-compatible route with two representations:
+
+- `?format=json` returns the same generated JSON as the historical machine path.
+- `?format=html` returns a local AutoSub landing page. The page validates subscription
+  readiness through the existing cache but never embeds or returns upstream HTML.
+
+Explicit `format` has priority over weighted `Accept`; `application/json` and
+`text/plain` select JSON, while `text/html` selects local HTML. Known subscription
+clients and unknown/default `*/*` requests fall back to JSON. A Mozilla User-Agent is
+used only as a final browser fallback. Unsupported or repeated `format` values return
+HTTP 400 without reflecting the value. AutoSub has no separate raw/base64 representation.
+
+The HTML response uses a local autoescaped template, strict self-only CSP,
+`Cache-Control: no-store`, `Referrer-Policy: no-referrer`, and no external assets.
+Upstream failures and redirects become a generic local HTTP 502 page with request ID.
+Its fixed stylesheet is served from `/sub/_assets/subscription.css`, so the existing
+public Nginx `/sub/` location is sufficient and admin assets remain unexposed.
 
 ### `GET /static/{path}`
 

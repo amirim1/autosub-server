@@ -7,7 +7,9 @@
 
 Он перехватывает запросы `/json/<subId>` и `/sub/<subId>` с внешнего порта прокси, получает оригинальную JSON-подписку от 3x-ui, генерирует и добавляет разрешенные профили автоматического выбора нод (Autoselect / LeastPing) в начало списка и возвращает оригинальные ноды без изменений после них.
 
-Для старых ссылок `/sub/<subId>` сервер автоматически различает запросы: веб-браузерам отображает красивую родную HTML-страницу 3x-ui (со статистикой трафика и кнопками), а VPN-клиентам отдает обновленную JSON-подписку с автовыбором.
+Для старых ссылок `/sub/<subId>` сервер автоматически различает запросы: браузерам
+показывает безопасную локальную страницу AutoSub, а VPN-клиентам отдаёт обновлённую
+JSON-подписку с автовыбором. Недоверенный HTML 3x-ui не проксируется в origin AutoSub.
 
 > [English documentation is available in [README_EN.md](README_EN.md).]
 
@@ -198,7 +200,7 @@ pool и закрывает при shutdown. Публичные upstream-запр
 Заданы отдельные connect/read/write/pool timeouts: `5/20/10/5` секунд для API
 панели и `5/30/10/5` секунд для подписок. Pool ограничен 20 соединениями, 10
 keep-alive соединениями и expiry 30 секунд. Ответы ограничены 4 MiB для JSON API,
-8 MiB для подписки и 1 MiB для HTML. Redirects автоматически не выполняются.
+8 MiB для подписки и 1 MiB для HTML входа в API-панель. Redirects автоматически не выполняются.
 
 TLS-сертификаты проверяются по умолчанию. `XUI_TLS_VERIFY=false` применяется только
 к соответствующей self-signed API-панели и не отключает проверку для публичного
@@ -216,9 +218,26 @@ upstream pool. Режим снижает защиту от перехвата; �
 Одновременные запросы одного ключа объединяются в одну сборку, а разные ключи
 собираются параллельно. Stale-ответ выдаётся только при временной сетевой ошибке
 или HTTP 5xx upstream. Ключи содержат SHA-256 хэши, а успешные изменения через
-админ-панель переключают поколение кэша. HTML и admin preview этот кэш обходят.
+админ-панель переключают поколение кэша. Локальная HTML-страница использует этот
+кэш только для проверки готовности JSON, но её HTML и request ID не кэшируются;
+admin preview кэш обходит.
 Кэш локален для одного Uvicorn-процесса; Redis для штатного однопроцессного
 развёртывания не требуется.
+
+### Представления подписки
+
+`/json/{sub_id}` всегда возвращает generated JSON независимо от `Accept` и
+User-Agent. Legacy `/sub/{sub_id}` поддерживает `?format=json` и `?format=html`;
+явный формат имеет приоритет над `Accept`, затем учитываются `application/json`,
+`text/plain` и `text/html` с `q=` weights. `*/*`, отсутствующий `Accept` и неизвестный
+клиент безопасно получают JSON, кроме обычного browser fallback по Mozilla UA.
+
+HTML создаётся локальным Jinja-template с autoescape, строгой CSP, локальным CSS,
+`Referrer-Policy: no-referrer` и `Cache-Control: no-store`. Upstream HTML, redirects,
+credentials и panel URL не вставляются в страницу. Отдельного raw/base64 формата
+AutoSub не предоставляет; machine representation остаётся совместимым JSON.
+CSS доступен по `/sub/_assets/subscription.css`, поэтому существующий Nginx location
+`/sub/` не требует расширения и не открывает admin assets.
 
 ### Ограничение частоты запросов
 
@@ -320,7 +339,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # Legacy Base64 subscription URLs (serves HTML to web browsers, JSON to VPN apps)
+    # Legacy URLs (serves local AutoSub HTML to browsers, JSON to VPN apps)
     location /sub/ {
         proxy_pass http://127.0.0.1:25500/sub/;
         proxy_set_header Host $host;

@@ -12,11 +12,16 @@ Python 3.10+, FastAPI/Uvicorn, httpx, aiosqlite, Jinja2, pytest/pytest-asyncio, 
 
 HTTP и lifecycle находятся в `autosub_server.py`; bounded rate limiting и trusted
 proxy resolution — в `rate_limiter.py`; бизнес-логика подписок — в `builder.py`;
+representation selection и безопасная local landing page — в
+`subscription_representation.py`;
 3x-ui integration — в `api_client.py`; persistence — в `storage.py`; dashboard —
 в `dashboard.py`, `templates/`, `static/`; конфигурация — в `config.py`;
 fingerprinting — в `fingerprint.py`.
 
-Поток запроса подписки: `/json/{sub_id}` или `/sub/{sub_id}` → upstream 3x-ui → нормализация и autoselect в `builder.py` → группы/правила из SQLite → JSON. Для legacy `/sub/` браузер получает HTML 3x-ui, VPN-клиент — JSON.
+Поток запроса подписки: `/json/{sub_id}` или `/sub/{sub_id}` → representation
+selection → upstream JSON 3x-ui → нормализация и autoselect в `builder.py` →
+группы/правила из SQLite → JSON. Для legacy `/sub/` браузер получает только local
+autoescaped HTML AutoSub; upstream HTML никогда не возвращается под origin AutoSub.
 
 Маршруты админки: `GET /admin`, `/admin/preview`, `/admin/api-test`, `/admin/debug`; mutating `POST /admin/save`, `/admin/discover`, `/admin/set-client-group`, `/admin/delete-client-group`, `/admin/add-autoselect`, `/admin/delete-autoselect`. Они защищены Basic Auth при заданном `AUTOSUB_ADMIN_PASSWORD` и CSRF для POST.
 
@@ -45,6 +50,7 @@ Linux-only deployment checks: `bash -n install.sh update.sh setup_nginx.sh finis
 Основные проверки — `python -m pytest -q`, Ruff, Pyright basic, coverage,
 pip-audit, Bandit и ShellCheck. Тесты находятся в `tests/test_*.py` и дополнительно
 покрывают lifecycle-managed HTTP clients и конкурентный subscription cache.
+Representation/XSS regressions находятся в `tests/test_subscription_representation.py`.
 
 ## Deployment
 

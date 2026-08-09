@@ -13,6 +13,8 @@ AutoSub Server — локальный прокси JSON-подписок для 
   per-key single-flight, stale-if-error и поколенческая инвалидация.
 - `rate_limiter.py` — bounded process-local sliding-window limiter и validated
   trusted-proxy client-IP resolution.
+- `subscription_representation.py` — deterministic JSON/local-HTML selection и
+  безопасный autoescaped subscription template.
 - `http_clients.py`, `http_client_config.py`, `http_client_errors.py` — lifespan-managed HTTP pools, panel-session isolation, limits and safe network errors.
 - `storage.py` — асинхронная SQLite persistence и миграции.
 - `dashboard.py`, `templates/`, `static/` — админ-интерфейс.
@@ -37,15 +39,18 @@ Python 3.10+, FastAPI, Uvicorn, httpx, aiosqlite, Jinja2, pytest, pytest-asyncio
 - Forwarded headers учитываются только от immediate peer из validated
   `AUTOSUB_TRUSTED_PROXIES`; пустое значение отключает trust, unsafe config
   останавливает startup.
+- `/json/` всегда возвращает generated JSON; `/sub/` поддерживает explicit
+  `format=json|html`, weighted Accept и local-only HTML. Upstream HTML никогда не
+  исполняется под origin AutoSub.
 - Рабочая ветка — `dev`, production — `main`.
 - `XUI_SUB_URL` используется для получения подписки; `XUI_API_URL` — для API панели; `XUI_URL` — fallback.
 
 ## Current State
 
-Последняя проверка 2026-08-09: `python -m pytest -q` — 287 passed, 1 strict xfailed
+Последняя проверка 2026-08-09: `python -m pytest -q` — 314 passed, 1 strict xfailed
 и 1 Starlette/httpx deprecation warning. Cache stampede устранён; единственный
 известный xfail — malformed config marker. Rate limiter bounded и разделяет
-public/admin/expensive policies.
+public/admin/expensive policies; browser `/sub/` использует только local HTML.
 
 ## Known Problems
 

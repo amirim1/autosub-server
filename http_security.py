@@ -19,6 +19,11 @@ ADMIN_CSP = (
     "base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
 )
 NON_HTML_CSP = "default-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+PUBLIC_HTML_CSP = (
+    "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; "
+    "font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; "
+    "frame-ancestors 'none'; form-action 'none'"
+)
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
@@ -45,12 +50,17 @@ def _apply_security_headers(path: str, status_code: int, headers: MutableHeaders
         headers.setdefault(name, value)
 
     content_type = headers.get("content-type", "").lower()
-    is_upstream_html = path.startswith("/sub/") and "text/html" in content_type
-    if not is_upstream_html:
-        is_admin = path == "/admin" or path.startswith("/admin/")
-        headers.setdefault("Content-Security-Policy", ADMIN_CSP if is_admin else NON_HTML_CSP)
+    is_html = "text/html" in content_type
+    is_admin = path == "/admin" or path.startswith("/admin/")
+    if is_admin:
+        policy = ADMIN_CSP
+    elif is_html:
+        policy = PUBLIC_HTML_CSP
+    else:
+        policy = NON_HTML_CSP
+    headers.setdefault("Content-Security-Policy", policy)
 
-    if path == "/admin" or path.startswith("/admin/") or status_code >= 400:
+    if is_admin or (path.startswith("/sub/") and is_html) or status_code >= 400:
         headers["Cache-Control"] = "no-store"
 
 

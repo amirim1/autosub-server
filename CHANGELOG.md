@@ -4,6 +4,16 @@ All notable changes to AutoSub Server will be documented in this file.
 
 ## [v2.1.0] - 2026-07-31
 
+2026-08-09: Upstream HTML для legacy `/sub/` заменён локальной autoescaped
+страницей AutoSub со строгой CSP и `no-store`. Добавлены детерминированные
+`format=json|html`, weighted Accept negotiation и безопасные local error pages;
+JSON payload, cache, rate limits и VPN-client compatibility сохранены.
+
+2026-08-09: Replaced upstream HTML on legacy `/sub/` with a local autoescaped
+AutoSub page using a strict CSP and `no-store`. Added deterministic
+`format=json|html`, weighted Accept negotiation, and safe local error pages while
+preserving JSON payloads, cache behavior, rate limits, and VPN-client compatibility.
+
 2026-08-09: Ограничен и усилен process-local rate limiter: sliding window,
 4096 LRU buckets, idle expiry, отдельные public/admin/expensive policies,
 trusted-proxy validation, spoof-safe XFF parsing и корректные `429` с
