@@ -21,7 +21,18 @@ Relationships are application-enforced: `group_rules.autoselect_id` refers to an
 
 `Storage.connect()` creates the schema and reads the stored schema version. Existing databases are upgraded with targeted `ALTER TABLE` operations for added node and autoselect fields. Do not edit schema definitions without a forward migration and regression tests.
 
-At startup `autosub_server.py` checks `AUTOSUB_CONFIG`/legacy `config.json` and calls `migrate_from_config()` when appropriate. The migration is intended to be one-time and preserves legacy settings in SQLite.
+At startup `autosub_server.py` checks `AUTOSUB_CONFIG`/legacy `config.json`. Existing
+input must be a valid UTF-8 JSON object with correctly typed import fields. Partial
+configs inherit defaults and unknown legacy fields remain compatible, while malformed
+JSON, wrong top-level types, invalid collection shapes, missing record IDs, duplicates,
+and invalid strategies stop startup safely.
+
+`Storage.migrate_from_config()` uses `BEGIN IMMEDIATE`, UPSERT/insert operations,
+post-write verification, and writes `config_migrated=1` last in the same transaction.
+Any parse, validation, DB, verification, cancellation, or commit failure leaves the
+marker absent, rolls back partial writes, preserves the original config, and permits
+retry at the next startup. A successful second startup sees the marker and skips the
+import, preventing duplicates.
 
 ## Data Safety Rules
 

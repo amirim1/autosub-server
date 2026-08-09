@@ -35,6 +35,8 @@ curl http://127.0.0.1:25500/health/ready
 python -m pytest -q
 python -m pytest tests/test_rate_limiter.py tests/test_rate_limit_routes.py -q
 python -m pytest tests/test_subscription_representation.py -q
+python -m pytest tests/test_config_regressions.py -q
+python -m pytest tests/test_runtime_manifest.py tests/test_final_deployment_smoke.py -q
 python -m compileall -q *.py
 ```
 
@@ -43,6 +45,7 @@ gates. On Linux, validate deployment scripts with:
 
 ```bash
 bash -n install.sh update.sh setup_nginx.sh finish_setup.sh
+shellcheck install.sh update.sh setup_nginx.sh
 ```
 
 ## Development Workflow
@@ -75,6 +78,8 @@ template autoescape, CSP, cache behavior, and malicious upstream HTML.
 - Configuration: `/opt/autosub-server/shared/.env`; active code: `current/`.
 - The root-managed service has no dedicated AutoSub Unix identity.
 - Deployment tests use temporary roots and fake runners; never point them at `/opt`.
+- A malformed existing `shared/config.json` deliberately stops startup without writing
+  `config_migrated`; correct the file and restart to retry the transactional import.
 - Public proxy: `curl -k https://<domain>:<port>/json/<sub_id>`.
 - Confirm `XUI_SUB_URL` and `XUI_API_URL` are distinct and valid.
 - Confirm `AUTOSUB_ADMIN_PASSWORD` and `AUTOSUB_TRUSTED_PROXIES` are set appropriately.

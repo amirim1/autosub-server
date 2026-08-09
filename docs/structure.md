@@ -56,7 +56,9 @@
 - `runtime_paths.py` — разделение активного release и persistent `shared/`.
 - `runtime-manifest.txt` — единый allowlist состава production release.
 - `install.sh` / `setup_nginx.sh` — Скрипты первичной установки и настройки Nginx.
-- `tests/` — Модульные тесты (`test_builder.py`, `test_fingerprint.py`, `test_storage.py`).
+- `tests/` — Модульные и deployment regression tests, включая transactional legacy
+  config recovery, manifest-only release import, fresh layout, upgrade, rollback и
+  interrupted-update recovery на temporary roots/fake runners.
 
 Production layout: `/opt/autosub-server/current -> releases/<id>`, per-release `venv`
 и `/opt/autosub-server/shared/{.env,config.json,data.db,autosub.log,backups}`. Service

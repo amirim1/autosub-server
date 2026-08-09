@@ -66,6 +66,12 @@ Updater использует marker-based staging, exact Git ref, atomic symlink
 local readiness и code rollback; production activation не доказывает отсутствие
 write traffic, поэтому DB restore после start остаётся manual/fail-closed.
 
+Legacy `shared/config.json` — retryable startup migration: `config.load_config()`
+строго разбирает UTF-8 JSON и валидирует импортируемые структуры, затем
+`Storage.migrate_from_config()` пишет данные, проверяет результат и только последним
+шагом той же транзакции ставит DB-marker `config_migrated=1`. Любая ошибка делает
+rollback, не создаёт marker и не удаляет исходный файл.
+
 ## Important Rules
 
 Минимальный diff, отсутствие лишней функциональности, повторное использование кода, отсутствие commit/push без запроса. Не ослаблять CSRF, Basic Auth, rate limiting, TLS и forwarded-header validation.

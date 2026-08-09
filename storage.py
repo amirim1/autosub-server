@@ -9,6 +9,7 @@ from pathlib import Path
 import aiosqlite
 
 from logger import logger
+from config import validate_legacy_config
 from database_errors import DatabaseIntegrityError
 from migrations import MIGRATIONS, SCHEMA_VERSION, prepare_database
 
@@ -106,20 +107,26 @@ class Storage:
     # --- Migration from config.json ---
 
     async def migrate_from_config(self, cfg):
-        migrated = await self.get_meta("config_migrated", "0")
-        if migrated == "1":
-            return False
-
+        validate_legacy_config(cfg)
         async with self._lock:
             try:
-                await self.conn.execute("BEGIN TRANSACTION")
+                await self.conn.execute("BEGIN IMMEDIATE")
+                async with self.conn.execute(
+                    "SELECT value FROM meta WHERE key = ?", ("config_migrated",)
+                ) as cursor:
+                    marker = await cursor.fetchone()
+                if marker is not None and marker["value"] == "1":
+                    await self.conn.commit()
+                    return False
                 for auto in cfg.get("autoselects", []):
                     await self.conn.execute(
-                        "INSERT OR REPLACE INTO autoselects (id, name, strategy, selected_node_ids, tag_filter, enabled) VALUES (?, ?, ?, ?, ?, ?)",
+                        "INSERT INTO autoselects (id, name, strategy, selected_node_ids, tag_filter, enabled) VALUES (?, ?, ?, ?, ?, ?) "
+                        "ON CONFLICT(id) DO UPDATE SET name=excluded.name, strategy=excluded.strategy, "
+                        "selected_node_ids=excluded.selected_node_ids, tag_filter=excluded.tag_filter, enabled=excluded.enabled",
                         (
                             auto.get("id", ""),
                             auto.get("name", ""),
-                            auto.get("strategy", "leastPing"),
+                            normalize_autoselect_strategy(auto.get("strategy", "leastPing")),
                             json.dumps(auto.get("selected_node_ids", []), ensure_ascii=False),
                             json.dumps(auto.get("tag_filter", []), ensure_ascii=False),
                             1 if auto.get("enabled", True) else 0,
@@ -139,7 +146,10 @@ class Storage:
                         continue
                     cid = node.get("canonical_id") or node.get("canonicalId") or ""
                     await self.conn.execute(
-                        "INSERT OR REPLACE INTO node_catalog (fingerprint, canonical_id, name, protocol, address, port, network, security, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        "INSERT INTO node_catalog (fingerprint, canonical_id, name, protocol, address, port, network, security, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                        "ON CONFLICT(fingerprint) DO UPDATE SET canonical_id=excluded.canonical_id, "
+                        "name=excluded.name, protocol=excluded.protocol, address=excluded.address, "
+                        "port=excluded.port, network=excluded.network, security=excluded.security, tag=excluded.tag",
                         (
                             fp,
                             cid,
@@ -157,19 +167,73 @@ class Storage:
                     if isinstance(groups, list):
                         groups = ",".join(groups)
                     await self.conn.execute(
-                        "INSERT OR REPLACE INTO client_group_overrides (key, groups) VALUES (?, ?)",
+                        "INSERT INTO client_group_overrides (key, groups) VALUES (?, ?) "
+                        "ON CONFLICT(key) DO UPDATE SET groups=excluded.groups",
                         (str(key), str(groups)),
                     )
     
+                for key in ("probe_url", "probe_interval"):
+                    if key in cfg:
+                        await self.conn.execute(
+                            "INSERT INTO meta (key, value) VALUES (?, ?) "
+                            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                            (key, cfg[key]),
+                        )
+
+                await self._verify_config_import(cfg)
                 await self.conn.execute(
-                    "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                    "INSERT INTO meta (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                     ("config_migrated", "1"),
                 )
                 await self.conn.commit()
             except Exception:
                 await self.conn.rollback()
                 raise
+            except BaseException:
+                await self.conn.rollback()
+                raise
         return True
+
+    async def _verify_config_import(self, cfg):
+        for auto in cfg.get("autoselects", []):
+            async with self.conn.execute(
+                "SELECT 1 FROM autoselects WHERE id = ?", (auto["id"],)
+            ) as cursor:
+                if await cursor.fetchone() is None:
+                    raise DatabaseIntegrityError("legacy autoselect verification failed")
+        for node in cfg.get("node_catalog", []):
+            fingerprint = node.get("id") or node.get("fingerprint")
+            async with self.conn.execute(
+                "SELECT 1 FROM node_catalog WHERE fingerprint = ?", (fingerprint,)
+            ) as cursor:
+                if await cursor.fetchone() is None:
+                    raise DatabaseIntegrityError("legacy node verification failed")
+        for group_name, autoselect_ids in (cfg.get("group_rules") or {}).items():
+            for autoselect_id in autoselect_ids:
+                async with self.conn.execute(
+                    "SELECT 1 FROM group_rules WHERE group_name = ? AND autoselect_id = ?",
+                    (group_name, autoselect_id),
+                ) as cursor:
+                    if await cursor.fetchone() is None:
+                        raise DatabaseIntegrityError("legacy group rule verification failed")
+        for key, groups in (cfg.get("client_group_overrides") or {}).items():
+            expected = ",".join(groups) if isinstance(groups, list) else groups
+            async with self.conn.execute(
+                "SELECT groups FROM client_group_overrides WHERE key = ?", (key,)
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row is None or row["groups"] != expected:
+                raise DatabaseIntegrityError("legacy client override verification failed")
+        for key in ("probe_url", "probe_interval"):
+            if key not in cfg:
+                continue
+            async with self.conn.execute(
+                "SELECT value FROM meta WHERE key = ?", (key,)
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row is None or row["value"] != cfg[key]:
+                raise DatabaseIntegrityError("legacy probe config verification failed")
 
     # --- Client Groups ---
 

@@ -16,6 +16,9 @@ Returns `200 {"status":"ready"}` only after FastAPI startup has opened/migrated
 SQLite and initialized the HTTP manager, subscription cache, rate limiter, proxy
 resolver, and CSRF manager. Before or after lifespan it returns
 `503 {"status":"not_ready"}`. It does not contact 3x-ui or expose internal paths.
+The state is reset before shutdown begins closing downstream resources. If SQLite
+migration or strict legacy-config import fails, lifespan does not complete and the
+service never reports ready.
 
 ### `GET /json/{sub_id}`
 

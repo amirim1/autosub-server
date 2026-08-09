@@ -31,10 +31,16 @@ fail() {
 if [ "${AUTOSUB_SKIP_ROOT_CHECK:-0}" != "1" ] && [ "$(id -u)" -ne 0 ]; then
   fail "run this updater as root"
 fi
+if [ "$(uname -s)" != "Linux" ]; then
+  fail "Linux is required"
+fi
 
-for command in "$PYTHON" git curl flock systemctl df; do
+for command in "$PYTHON" git curl flock systemctl df install mktemp grep awk sed head chmod mv dirname sleep; do
   command -v "$command" >/dev/null 2>&1 || fail "required command not found: $command"
 done
+if ! "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)'; then
+  fail "Python 3.10 or newer is required"
+fi
 
 install -d -m 700 "$APP_DIR" "$APP_DIR/releases" "$APP_DIR/shared/backups"
 exec 9>"$APP_DIR/.update.lock"
@@ -125,10 +131,13 @@ from pathlib import Path
 
 path = Path(sys.argv[1])
 lines = path.read_text(encoding="utf-8").splitlines()
-secret = secrets.token_urlsafe(48)
+csrf_secret = secrets.token_urlsafe(48)
+admin_password = secrets.token_urlsafe(24)
 updated = [
-    f"AUTOSUB_SECRET_KEY={secret}"
+    f"AUTOSUB_SECRET_KEY={csrf_secret}"
     if line.startswith("AUTOSUB_SECRET_KEY=")
+    else f"AUTOSUB_ADMIN_PASSWORD={admin_password}"
+    if line.startswith("AUTOSUB_ADMIN_PASSWORD=")
     else line
     for line in lines
 ]

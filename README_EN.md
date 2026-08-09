@@ -3,6 +3,36 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+## Final operations model
+
+Production uses the root-managed `/opt/autosub-server/{releases,current,shared}` layout
+and Python 3.10+. A fresh install generates separate `AUTOSUB_SECRET_KEY` and
+`AUTOSUB_ADMIN_PASSWORD` values, stores `.env` with mode `0600`, and preserves existing
+shared data on a repeated run.
+
+Legacy `shared/config.json` is imported once. Existing input is decoded as strict UTF-8
+JSON and minimally validated; all records and the `config_migrated=1` DB marker are
+committed in one transaction, with the marker written last after verification. A
+malformed config stops startup without a marker or partial writes, so a corrected file
+is retried on the next start. The source config remains in `shared/`.
+
+Verified operator commands:
+
+```bash
+systemctl status autosub-server --no-pager
+journalctl -u autosub-server -f
+systemctl restart autosub-server
+/opt/autosub-server/update.sh
+curl --fail http://127.0.0.1:25500/health/ready
+readlink /opt/autosub-server/current
+find /opt/autosub-server/releases -mindepth 1 -maxdepth 1 -type d -printf '%f\n'
+find /opt/autosub-server/shared/backups -maxdepth 1 -type f -printf '%f\n'
+```
+
+Automatic DB restore is deliberately disabled after a normal systemd restart. The
+verified backup is retained for fail-closed/manual recovery so rollback cannot erase
+writes that may have arrived after traffic became possible.
+
 **AutoSub Server** is a local JSON subscription proxy for the **3x-ui** panel.
 
 It intercepts `/json/<subId>` and `/sub/<subId>` requests from a reverse-proxy port, fetches the original JSON subscription from 3x-ui, generates and prepends allowed autoselect profiles (configurable `leastPing` or `leastLoad` balancer) to the profile list, and appends original nodes unchanged after them.

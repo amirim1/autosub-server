@@ -8,7 +8,7 @@ WorkingDirectory=/opt/autosub-server/current
 Environment=AUTOSUB_ROOT=/opt/autosub-server
 EnvironmentFile=/opt/autosub-server/shared/.env
 ExecStart=/opt/autosub-server/current/venv/bin/python /opt/autosub-server/current/autosub_server.py
-Restart=always
+Restart=on-failure
 RestartSec=3
 UMask=0077
 NoNewPrivileges=true

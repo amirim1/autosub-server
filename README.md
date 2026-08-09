@@ -3,6 +3,37 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+## Финальная эксплуатационная модель
+
+Production использует root-managed layout `/opt/autosub-server/{releases,current,shared}`
+и Python 3.10+. Fresh install генерирует отдельные `AUTOSUB_SECRET_KEY` и
+`AUTOSUB_ADMIN_PASSWORD`, сохраняет `.env` с mode `0600` и не перезаписывает existing
+shared data при повторном запуске.
+
+Legacy `shared/config.json` импортируется один раз. Существующий файл сначала строго
+декодируется как UTF-8 JSON, затем проверяется его минимальная структура; все записи и
+DB-marker `config_migrated=1` фиксируются одной транзакцией, причём marker записывается
+последним после проверки результата. Повреждённый config останавливает startup без
+marker и частичных записей: после исправления следующий запуск повторит import.
+Исходный файл остаётся в `shared/`.
+
+Проверенные operator commands:
+
+```bash
+systemctl status autosub-server --no-pager
+journalctl -u autosub-server -f
+systemctl restart autosub-server
+/opt/autosub-server/update.sh
+curl --fail http://127.0.0.1:25500/health/ready
+readlink /opt/autosub-server/current
+find /opt/autosub-server/releases -mindepth 1 -maxdepth 1 -type d -printf '%f\n'
+find /opt/autosub-server/shared/backups -maxdepth 1 -type f -printf '%f\n'
+```
+
+Автоматический DB restore после обычного systemd restart не выполняется: verified
+backup сохраняется для fail-closed/manual recovery, чтобы rollback не стирал записи,
+которые могли появиться после открытия трафика.
+
 **AutoSub Server** — это локальный прокси-сервер JSON-подписок для панели **3x-ui**.
 
 Он перехватывает запросы `/json/<subId>` и `/sub/<subId>` с внешнего порта прокси, получает оригинальную JSON-подписку от 3x-ui, генерирует и добавляет разрешенные профили автоматического выбора нод (Autoselect / LeastPing) в начало списка и возвращает оригинальные ноды без изменений после них.

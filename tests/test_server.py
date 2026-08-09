@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 import autosub_server
+import config
 from rate_limiter import RateLimitPolicy
 
 
@@ -83,7 +84,11 @@ def test_lifespan_closes_http_client_and_storage(monkeypatch, tmp_path):
     fake_manager = AsyncMock()
     fake_cache = AsyncMock()
     close_order = []
-    fake_cache.close.side_effect = lambda: close_order.append("cache")
+    def close_cache():
+        assert autosub_server.app.state.ready is False
+        close_order.append("cache")
+
+    fake_cache.close.side_effect = close_cache
     fake_manager.close.side_effect = lambda: close_order.append("http")
     fake_storage.close.side_effect = lambda: close_order.append("storage")
     monkeypatch.setattr(autosub_server, "storage", fake_storage)
@@ -109,6 +114,49 @@ def test_lifespan_closes_http_client_and_storage(monkeypatch, tmp_path):
     fake_storage.close.assert_awaited_once()
     assert close_order == ["cache", "http", "storage"]
     assert autosub_server.app.state.ready is False
+
+
+def test_lifespan_config_failure_never_becomes_ready_and_closes_resources(
+    monkeypatch, tmp_path
+):
+    malformed = tmp_path / "config.json"
+    malformed.write_text("{broken", encoding="utf-8")
+    fake_storage = AsyncMock()
+    fake_manager = AsyncMock()
+    fake_cache = AsyncMock()
+    monkeypatch.setattr(autosub_server, "storage", fake_storage)
+    monkeypatch.setattr(autosub_server, "HttpClientManager", lambda env_getter: fake_manager)
+    monkeypatch.setattr(autosub_server, "SubscriptionCache", lambda: fake_cache)
+    monkeypatch.setattr(autosub_server, "CONFIG_PATH", malformed)
+    monkeypatch.setattr(config, "CONFIG_PATH", malformed)
+    monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
+    monkeypatch.setattr(config, "ensure_app_dir", lambda: None)
+    monkeypatch.setattr(autosub_server, "env_get", lambda key, default="": default)
+
+    async def exercise():
+        with pytest.raises(config.LegacyConfigError):
+            async with autosub_server.lifespan(autosub_server.app):
+                raise AssertionError("lifespan must not yield after config failure")
+
+    asyncio.run(exercise())
+
+    assert autosub_server.app.state.ready is False
+    fake_storage.connect.assert_awaited_once()
+    fake_storage.migrate_from_config.assert_not_awaited()
+    fake_cache.close.assert_awaited_once()
+    fake_manager.close.assert_awaited_once()
+    fake_storage.close.assert_awaited_once()
+
+
+def test_readiness_is_private_and_false_before_startup():
+    autosub_server.app.state.ready = False
+    request = _request()
+    request.scope["app"] = autosub_server.app
+
+    response = asyncio.run(autosub_server.readiness(request))
+
+    assert response.status_code == 503
+    assert response.body == b'{"status":"not_ready"}'
 
 
 @pytest.fixture

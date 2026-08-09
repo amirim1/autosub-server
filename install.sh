@@ -6,6 +6,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
 APP_DIR="${AUTOSUB_ROOT:-/opt/autosub-server}"
 TMP_DIR=""
 
+fail() {
+  echo "AutoSub installation failed: $*" >&2
+  exit 1
+}
+
 cleanup() {
   if [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ]; then
     case "$TMP_DIR" in
@@ -16,15 +21,21 @@ cleanup() {
 }
 trap cleanup EXIT
 
+if [ "${AUTOSUB_SKIP_ROOT_CHECK:-0}" != "1" ] && [ "$(id -u)" -ne 0 ]; then
+  fail "run this installer as root"
+fi
+if [ "$(uname -s)" != "Linux" ]; then
+  fail "Linux is required"
+fi
+
 if [ -f "$SCRIPT_DIR/update.sh" ] && [ -f "$SCRIPT_DIR/autosub_server.py" ]; then
   AUTOSUB_SOURCE_DIR="$SCRIPT_DIR" bash "$SCRIPT_DIR/update.sh"
   exit $?
 fi
 
-for command in git curl; do
+for command in git curl sed head install mktemp; do
   command -v "$command" >/dev/null 2>&1 || {
-    echo "Required command not found: $command" >&2
-    exit 1
+    fail "required command not found: $command"
   }
 done
 

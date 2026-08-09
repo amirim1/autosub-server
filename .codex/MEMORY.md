@@ -1,5 +1,23 @@
 # Project Memory
 
+## Final Hardening State
+
+PR №12 closes the last known strict xfail. Existing legacy `shared/config.json` is
+parsed as strict UTF-8 JSON, minimally validated, and imported by
+`Storage.migrate_from_config()` using `BEGIN IMMEDIATE`; persisted rows are verified
+before the `config_migrated=1` marker is written last in the same transaction. Failures
+roll back, preserve the source file, leave the marker absent, and retry on next startup.
+
+Readiness remains false until DB migration, HTTP manager, subscription cache, rate
+limiter, proxy resolver, CSRF manager, and legacy import complete. It is reset before
+shutdown closes dependencies and never performs a 3x-ui network check. Deployment is
+Linux/Python 3.10+, root-managed with `Restart=on-failure`; fresh install generates
+CSRF and admin secrets while repeated install preserves `shared`. Runtime manifest and
+temporary-root deployment smoke tests cover manifest-only import, fresh initialization,
+legacy persistence/config migration, successful update, rollback, and interrupted
+recovery. CI runs Python 3.10/3.12, locked installs, pytest/coverage, Ruff, Pyright,
+pip-audit, Bandit, ShellCheck, and `bash -n`.
+
 ## Project Overview
 
 AutoSub Server — локальный прокси JSON-подписок для 3x-ui с профилями Autoselect/LeastPing и админ-панелью.
@@ -48,10 +66,10 @@ Python 3.10+, FastAPI, Uvicorn, httpx, aiosqlite, Jinja2, pytest, pytest-asyncio
 
 ## Current State
 
-Baseline PR №11 до deployment-изменений: `python -m pytest -q` — 314 passed,
-1 strict xfailed и 1 Starlette/httpx deprecation warning. Единственный
-известный xfail — malformed config marker. Rate limiter bounded и разделяет
-public/admin/expensive policies; browser `/sub/` использует только local HTML.
+Финальный baseline после PR №12 фиксируется полным pytest/coverage и quality gates;
+strict xfail для malformed config marker закрыт production-исправлением. Rate limiter
+bounded и разделяет public/admin/expensive policies; browser `/sub/` использует только
+local HTML.
 
 ## Known Problems
 

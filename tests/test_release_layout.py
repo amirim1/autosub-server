@@ -281,6 +281,8 @@ def test_systemd_and_manifest_contracts():
     assert "WorkingDirectory=/opt/autosub-server/current" in unit
     assert "EnvironmentFile=/opt/autosub-server/shared/.env" in unit
     assert "current/venv/bin/python" in unit
+    assert "Restart=on-failure" in unit
+    assert "Restart=always" not in unit
     assert "User=" + "autosub" not in unit
     assert "Group=" + "autosub" not in unit
     assert "User=root" not in unit
@@ -294,3 +296,13 @@ def test_systemd_and_manifest_contracts():
         for entry in manifest
     )
     assert {path.name for path in Path().glob("*.py")} <= set(manifest)
+    install_script = Path("install.sh").read_text(encoding="utf-8")
+    assert '"$(uname -s)" != "Linux"' in install_script
+    assert '"$(id -u)" -ne 0' in install_script
+    assert "Python 3.10 or newer is required" in updater
+    assert "AUTOSUB_ADMIN_PASSWORD={admin_password}" in updater
+    assert 'if [ ! -f "$APP_DIR/shared/.env" ]' in updater
+    assert 'if [ ! -f "$APP_DIR/shared/config.json" ]' in updater
+    assert 'install -d -m 700 "$APP_DIR"' in updater
+    assert 'chmod 600 "$APP_DIR/shared/.env" "$APP_DIR/shared/config.json"' in updater
+    assert 'rm -rf -- "$APP_DIR/shared"' not in updater

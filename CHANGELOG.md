@@ -4,6 +4,17 @@ All notable changes to AutoSub Server will be documented in this file.
 
 ## [v2.1.0] - 2026-07-31
 
+2026-08-09: Final hardening завершает recovery/deployment cycle: malformed legacy
+`config.json` теперь строго проверяется и импортируется с verify-before-marker в одной
+SQLite-транзакции; failed import остаётся retryable. Уточнены readiness lifecycle,
+root-managed installer/systemd, runtime manifest smoke tests и Linux shell CI gates.
+
+2026-08-09: Final hardening completes the recovery/deployment cycle. Malformed legacy
+`config.json` is now strictly validated and imported with verify-before-marker in one
+SQLite transaction, keeping failed imports retryable. Readiness lifecycle,
+root-managed installer/systemd behavior, manifest-only smoke tests, and Linux shell CI
+gates are finalized.
+
 2026-08-09: Deployment переведён на root-managed release layout
 `releases/current/shared`: per-release venv, единый runtime manifest, безопасная
 legacy migration, SQLite pre-update backup, atomic symlink activation, local readiness,

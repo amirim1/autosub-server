@@ -17,7 +17,8 @@ AutoSub Server — локальный FastAPI-прокси для JSON-подп�
   and rendering of the local safe subscription page.
 - `storage.py` — async SQLite connection, schema creation, migrations and CRUD.
 - `dashboard.py` — admin view rendering, form parsing and persistence orchestration.
-- `config.py` — environment loading, application paths and defaults.
+- `config.py` — environment loading, application paths, defaults, and strict legacy
+  config parsing/validation before one-time SQLite import.
 - `fingerprint.py` — stable node IDs, canonical fingerprints and unique tags.
 - `logger.py` — application log setup.
 - `templates/`, `static/` — dashboard UI.
@@ -77,6 +78,8 @@ excludes tests, docs, `.codex`, secrets, and data.
 An atomic root-only `.update-state.json` records previous/candidate/phase/backup so a
 subsequent updater restores the recorded previous release after a switch interruption;
 unknown or mismatched state fails closed.
-An atomic root-only `.update-state.json` records previous/candidate/phase/backup so a
-subsequent updater restores the recorded previous release after a switch interruption;
-unknown or mismatched state fails closed.
+
+Readiness is false before startup completes and is reset before downstream resources
+close during shutdown. Startup opens/migrates SQLite, initializes HTTP/cache/rate-limit/
+proxy/CSRF resources, strictly imports legacy config when needed, and only then makes
+`/health/ready` return 200. Readiness never calls 3x-ui.

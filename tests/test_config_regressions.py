@@ -4,10 +4,11 @@ import json
 import pytest
 
 import config
+from database_errors import DatabaseIntegrityError
 from storage import Storage
 
 
-def test_missing_empty_and_malformed_config_use_defaults(tmp_path, monkeypatch):
+def test_missing_config_uses_defaults_but_malformed_config_fails(tmp_path, monkeypatch):
     path = tmp_path / "config.json"
     monkeypatch.setattr(config, "CONFIG_PATH", path)
     monkeypatch.setattr(config, "ensure_app_dir", lambda: None)
@@ -17,15 +18,23 @@ def test_missing_empty_and_malformed_config_use_defaults(tmp_path, monkeypatch):
     assert missing is not config.DEFAULT_CONFIG
 
     path.write_text("", encoding="utf-8")
-    assert config.load_config() == config.DEFAULT_CONFIG
+    with pytest.raises(config.LegacyConfigError):
+        config.load_config()
 
     path.write_text("{not json", encoding="utf-8")
-    assert config.load_config() == config.DEFAULT_CONFIG
+    with pytest.raises(config.LegacyConfigError):
+        config.load_config()
+
+    path.write_bytes(b'{"probe_url":"\xff"}')
+    with pytest.raises(config.LegacyConfigError):
+        config.load_config()
+
+    path.write_text("[]", encoding="utf-8")
+    with pytest.raises(config.LegacyConfigError):
+        config.load_config()
 
 
-def test_partial_config_preserves_defaults_but_wrong_field_types_are_accepted(
-    tmp_path, monkeypatch
-):
+def test_partial_config_preserves_defaults_but_wrong_field_types_fail(tmp_path, monkeypatch):
     path = tmp_path / "config.json"
     monkeypatch.setattr(config, "CONFIG_PATH", path)
     monkeypatch.setattr(config, "ensure_app_dir", lambda: None)
@@ -40,9 +49,8 @@ def test_partial_config_preserves_defaults_but_wrong_field_types_are_accepted(
     path.write_text(
         json.dumps({"autoselects": "wrong", "group_rules": []}), encoding="utf-8"
     )
-    wrong_types = config.load_config()
-    assert wrong_types["autoselects"] == "wrong"
-    assert wrong_types["group_rules"] == []
+    with pytest.raises(config.LegacyConfigError):
+        config.load_config()
 
 
 def test_valid_legacy_config_imports_once_and_preserves_values(tmp_path, monkeypatch):
@@ -63,7 +71,10 @@ def test_valid_legacy_config_imports_once_and_preserves_values(tmp_path, monkeyp
                     }
                 ],
                 "group_rules": {"clients": ["legacy"]},
-                "client_group_overrides": {"sub-1": ["clients"]},
+                "client_group_overrides": {
+                    "sub-1": ["clients"],
+                    "sub-legacy-string": "clients,admins",
+                },
                 "node_catalog": [{"id": "node-1", "name": "Node 1"}],
             }
         ),
@@ -80,7 +91,10 @@ def test_valid_legacy_config_imports_once_and_preserves_values(tmp_path, monkeyp
             ("legacy", "leastLoad")
         ]
         assert await store.get_group_rules() == {"clients": ["legacy"]}
-        assert await store.get_client_group_overrides() == {"sub-1": ["clients"]}
+        assert await store.get_client_group_overrides() == {
+            "sub-1": ["clients"],
+            "sub-legacy-string": ["clients", "admins"],
+        }
         assert [row["fingerprint"] for row in await store.get_node_catalog()] == [
             "node-1"
         ]
@@ -89,10 +103,6 @@ def test_valid_legacy_config_imports_once_and_preserves_values(tmp_path, monkeyp
     asyncio.run(exercise())
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Known issue: malformed config imports defaults and permanently sets config_migrated",
-)
 def test_fixed_config_is_imported_after_previous_malformed_file(tmp_path, monkeypatch):
     path = tmp_path / "config.json"
     monkeypatch.setattr(config, "CONFIG_PATH", path)
@@ -106,7 +116,7 @@ def test_fixed_config_is_imported_after_previous_malformed_file(tmp_path, monkey
             broken_config = None
             try:
                 broken_config = config.load_config()
-            except (json.JSONDecodeError, ValueError):
+            except config.LegacyConfigError:
                 pass
             if broken_config is not None:
                 assert await store.migrate_from_config(broken_config) is True
@@ -129,6 +139,81 @@ def test_fixed_config_is_imported_after_previous_malformed_file(tmp_path, monkey
             assert any(
                 item["id"] == "corrected" for item in await store.get_autoselects()
             )
+        finally:
+            await store.close()
+
+    asyncio.run(exercise())
+
+
+def test_legacy_import_rolls_back_without_marker_and_retries(tmp_path, monkeypatch):
+    cfg = {
+        "autoselects": [
+            {
+                "id": "retry",
+                "name": "Retry",
+                "selected_node_ids": ["*"],
+            }
+        ],
+        "group_rules": {"retry-group": ["retry"]},
+        "client_group_overrides": {},
+        "node_catalog": [],
+    }
+
+    async def exercise():
+        store = Storage(tmp_path / "rollback-retry.db")
+        await store.connect()
+        original_verify = store._verify_config_import
+
+        async def fail_verify(_cfg):
+            raise DatabaseIntegrityError("simulated verification failure")
+
+        monkeypatch.setattr(store, "_verify_config_import", fail_verify)
+        with pytest.raises(DatabaseIntegrityError):
+            await store.migrate_from_config(cfg)
+        assert await store.get_meta("config_migrated", "0") == "0"
+        assert not any(item["id"] == "retry" for item in await store.get_autoselects())
+        assert "retry-group" not in await store.get_group_rules()
+
+        monkeypatch.setattr(store, "_verify_config_import", original_verify)
+        assert await store.migrate_from_config(cfg) is True
+        assert await store.get_meta("config_migrated") == "1"
+        assert await store.migrate_from_config(cfg) is False
+        assert [
+            item["id"] for item in await store.get_autoselects() if item["id"] == "retry"
+        ] == ["retry"]
+        await store.close()
+
+    asyncio.run(exercise())
+
+
+def test_concurrent_legacy_import_is_single_commit(tmp_path):
+    cfg = {
+        "autoselects": [
+            {
+                "id": "single-flight-import",
+                "name": "Single Import",
+                "selected_node_ids": ["*"],
+            }
+        ],
+        "group_rules": {},
+        "client_group_overrides": {},
+        "node_catalog": [],
+    }
+
+    async def exercise():
+        store = Storage(tmp_path / "concurrent-import.db")
+        await store.connect()
+        try:
+            outcomes = await asyncio.gather(
+                store.migrate_from_config(cfg),
+                store.migrate_from_config(cfg),
+            )
+            assert sorted(outcomes) == [False, True]
+            assert [
+                item["id"]
+                for item in await store.get_autoselects()
+                if item["id"] == "single-flight-import"
+            ] == ["single-flight-import"]
         finally:
             await store.close()
 
