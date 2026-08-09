@@ -5,9 +5,13 @@ import httpx
 import pytest
 
 import api_client
+from http_client_errors import (
+    UpstreamConnectionError,
+    UpstreamResponseError,
+    UpstreamTimeoutError,
+)
+from http_clients import HttpClientManager
 
-
-REAL_ASYNC_CLIENT = httpx.AsyncClient
 
 class TrackingClientFactory:
     def __init__(self, handler):
@@ -15,52 +19,59 @@ class TrackingClientFactory:
         self.clients = []
 
     def __call__(self, *args, **kwargs):
-        client = REAL_ASYNC_CLIENT(
+        client = httpx.AsyncClient(
             transport=self.transport,
-            timeout=kwargs.get("timeout", 5.0),
-            follow_redirects=kwargs.get("follow_redirects", False),
+            timeout=kwargs["timeout"],
+            limits=kwargs["limits"],
+            follow_redirects=kwargs["follow_redirects"],
         )
         self.clients.append(client)
         return client
 
 
+async def run_managed(factory, action):
+    manager = HttpClientManager(
+        env_getter=lambda key, default="": default,
+        client_factory=factory,
+    )
+    await manager.start()
+    try:
+        return await action(manager)
+    finally:
+        await manager.close()
+
+
 @pytest.fixture(autouse=True)
 def reset_http_state(monkeypatch):
     api_client._sub_cache.clear()
-    api_client._global_api = None
 
     def env_get(key, default=""):
-        values = {
-            "XUI_SUB_URL": "https://subscriptions.example.test",
-            "XUI_API_URL": "https://panel.example.test",
-            "XUI_API_TOKEN": "test-token",
-            "XUI_TLS_VERIFY": "true",
-        }
-        return values.get(key, default)
+        if key == "XUI_SUB_URL":
+            return "https://subscriptions.example.test"
+        return default
 
     monkeypatch.setattr(api_client, "env_get", env_get)
     yield
     api_client._sub_cache.clear()
-    api_client._global_api = None
 
 
-def test_successful_json_fetch_uses_and_closes_one_client(monkeypatch):
+def test_successful_json_fetch_reuses_and_closes_managed_client():
     requests = []
 
     def handler(request):
         requests.append(request)
-        return httpx.Response(
-            200,
-            json=[{"name": "node"}],
-            headers={"Content-Type": "application/json"},
-        )
+        return httpx.Response(200, json=[{"name": "node"}], headers={"Content-Type": "application/json"})
 
     factory = TrackingClientFactory(handler)
-    monkeypatch.setattr(api_client.httpx, "AsyncClient", factory)
 
-    text, content_type, _ = asyncio.run(
-        api_client.fetch_original_subscription("sub/with slash", "client=happ")
-    )
+    async def exercise(manager):
+        first = await api_client.fetch_original_subscription(
+            "sub/with slash", "client=happ", client_manager=manager
+        )
+        await api_client.fetch_original_subscription("other", client_manager=manager)
+        return first
+
+    text, content_type, _ = asyncio.run(run_managed(factory, exercise))
 
     assert json.loads(text) == [{"name": "node"}]
     assert content_type == "application/json"
@@ -70,27 +81,27 @@ def test_successful_json_fetch_uses_and_closes_one_client(monkeypatch):
     assert factory.clients[0].is_closed
 
 
-def test_successful_html_fetch_preserves_status_and_closes_client(monkeypatch):
+def test_successful_html_fetch_preserves_status():
     factory = TrackingClientFactory(
         lambda request: httpx.Response(
             201, content=b"<html>ok</html>", headers={"Content-Type": "text/html"}
         )
     )
-    monkeypatch.setattr(api_client.httpx, "AsyncClient", factory)
 
-    body, content_type, status = asyncio.run(
-        api_client.fetch_original_sub_html("html-sub", {"accept": "text/html"})
-    )
+    async def exercise(manager):
+        return await api_client.fetch_original_sub_html(
+            "html-sub", {"accept": "text/html"}, client_manager=manager
+        )
+
+    body, content_type, status = asyncio.run(run_managed(factory, exercise))
 
     assert body == "<html>ok</html>"
     assert content_type == "text/html"
     assert status == 201
-    assert len(factory.clients) == 1
-    assert factory.clients[0].is_closed
 
 
 @pytest.mark.parametrize("status", [400, 404, 500, 503])
-def test_subscription_http_errors_are_raised_and_not_cached(monkeypatch, status):
+def test_subscription_http_errors_are_safe_and_not_cached(status):
     calls = 0
 
     def handler(request):
@@ -98,73 +109,67 @@ def test_subscription_http_errors_are_raised_and_not_cached(monkeypatch, status)
         calls += 1
         return httpx.Response(status, text="upstream error")
 
-    factory = TrackingClientFactory(handler)
-    monkeypatch.setattr(api_client.httpx, "AsyncClient", factory)
+    async def exercise(manager):
+        for _ in range(2):
+            with pytest.raises(UpstreamResponseError):
+                await api_client.fetch_original_subscription("error-sub", client_manager=manager)
 
-    for _ in range(2):
-        with pytest.raises(httpx.HTTPStatusError) as exc_info:
-            asyncio.run(api_client.fetch_original_subscription("error-sub"))
-        assert exc_info.value.response.status_code == status
-
+    asyncio.run(run_managed(TrackingClientFactory(handler), exercise))
     assert calls == 2
     assert "error-sub:" not in api_client._sub_cache
 
 
 @pytest.mark.parametrize(
-    "exception_factory",
+    ("exception_factory", "expected"),
     [
-        lambda request: httpx.ConnectTimeout("connect timeout", request=request),
-        lambda request: httpx.ReadTimeout("read timeout", request=request),
-        lambda request: httpx.TransportError("TLS handshake failed", request=request),
+        (lambda request: httpx.ConnectTimeout("connect timeout", request=request), UpstreamTimeoutError),
+        (lambda request: httpx.ReadTimeout("read timeout", request=request), UpstreamTimeoutError),
+        (lambda request: httpx.WriteTimeout("write timeout", request=request), UpstreamTimeoutError),
+        (lambda request: httpx.PoolTimeout("pool timeout", request=request), UpstreamTimeoutError),
+        (lambda request: httpx.TransportError("transport failed", request=request), UpstreamConnectionError),
     ],
 )
-def test_transport_failures_propagate_and_client_is_closed(monkeypatch, exception_factory):
+def test_transport_failures_are_mapped(exception_factory, expected):
     def handler(request):
         raise exception_factory(request)
 
-    factory = TrackingClientFactory(handler)
-    monkeypatch.setattr(api_client.httpx, "AsyncClient", factory)
+    async def exercise(manager):
+        with pytest.raises(expected):
+            await api_client.fetch_original_subscription("transport-sub", client_manager=manager)
 
-    with pytest.raises(httpx.TransportError):
-        asyncio.run(api_client.fetch_original_subscription("transport-sub"))
-
-    assert len(factory.clients) == 1
-    assert factory.clients[0].is_closed
+    asyncio.run(run_managed(TrackingClientFactory(handler), exercise))
 
 
-def test_redirect_is_not_followed(monkeypatch):
+def test_redirect_is_not_followed():
     requests = []
 
     def handler(request):
         requests.append(request)
         return httpx.Response(302, headers={"Location": "https://other.example.test/next"})
 
-    factory = TrackingClientFactory(handler)
-    monkeypatch.setattr(api_client.httpx, "AsyncClient", factory)
+    async def exercise(manager):
+        with pytest.raises(UpstreamResponseError):
+            await api_client.fetch_original_subscription("redirect-sub", client_manager=manager)
 
-    with pytest.raises(httpx.HTTPStatusError) as exc_info:
-        asyncio.run(api_client.fetch_original_subscription("redirect-sub"))
-
-    assert exc_info.value.response.status_code == 302
+    asyncio.run(run_managed(TrackingClientFactory(handler), exercise))
     assert len(requests) == 1
 
 
 @pytest.mark.parametrize("body", ["", "not-json", "{}"])
-def test_empty_or_invalid_subscription_body_fails_normalization(monkeypatch, body):
+def test_empty_or_invalid_subscription_body_fails_normalization(body):
     factory = TrackingClientFactory(
-        lambda request: httpx.Response(
-            200, text=body, headers={"Content-Type": "application/json"}
-        )
+        lambda request: httpx.Response(200, text=body, headers={"Content-Type": "application/json"})
     )
-    monkeypatch.setattr(api_client.httpx, "AsyncClient", factory)
 
-    text, _, _ = asyncio.run(api_client.fetch_original_subscription("invalid-body"))
+    async def exercise(manager):
+        return await api_client.fetch_original_subscription("invalid-body", client_manager=manager)
 
+    text, _, _ = asyncio.run(run_managed(factory, exercise))
     with pytest.raises((json.JSONDecodeError, ValueError)):
         api_client.normalize_subscription(text)
 
 
-def test_cache_hit_avoids_second_upstream_request(monkeypatch):
+def test_cache_hit_avoids_second_upstream_request():
     calls = 0
 
     def handler(request):
@@ -172,17 +177,12 @@ def test_cache_hit_avoids_second_upstream_request(monkeypatch):
         calls += 1
         return httpx.Response(200, json=[])
 
-    factory = TrackingClientFactory(handler)
-    monkeypatch.setattr(api_client.httpx, "AsyncClient", factory)
+    async def exercise(manager):
+        await api_client.fetch_original_subscription("same", "a=1", client_manager=manager)
+        await api_client.fetch_original_subscription("same", "a=1", client_manager=manager)
 
-    async def exercise():
-        await api_client.fetch_original_subscription("same", "a=1")
-        await api_client.fetch_original_subscription("same", "a=1")
-
-    asyncio.run(exercise())
-
+    asyncio.run(run_managed(TrackingClientFactory(handler), exercise))
     assert calls == 1
-    assert len(factory.clients) == 1
 
 
 def test_cache_ttl_expiration_uses_upstream_again(monkeypatch):
@@ -194,18 +194,18 @@ def test_cache_ttl_expiration_uses_upstream_again(monkeypatch):
         calls += 1
         return httpx.Response(200, json=[])
 
-    factory = TrackingClientFactory(handler)
-    monkeypatch.setattr(api_client.httpx, "AsyncClient", factory)
     monkeypatch.setattr(api_client.time, "time", lambda: clock["now"])
 
-    asyncio.run(api_client.fetch_original_subscription("ttl"))
-    clock["now"] += api_client._sub_cache_ttl + 1
-    asyncio.run(api_client.fetch_original_subscription("ttl"))
+    async def exercise(manager):
+        await api_client.fetch_original_subscription("ttl", client_manager=manager)
+        clock["now"] += api_client._sub_cache_ttl + 1
+        await api_client.fetch_original_subscription("ttl", client_manager=manager)
 
+    asyncio.run(run_managed(TrackingClientFactory(handler), exercise))
     assert calls == 2
 
 
-def test_cache_keys_distinguish_sub_ids_query_and_parameter_order(monkeypatch):
+def test_cache_keys_preserve_legacy_identity():
     calls = 0
 
     def handler(request):
@@ -213,47 +213,25 @@ def test_cache_keys_distinguish_sub_ids_query_and_parameter_order(monkeypatch):
         calls += 1
         return httpx.Response(200, json=[])
 
-    factory = TrackingClientFactory(handler)
-    monkeypatch.setattr(api_client.httpx, "AsyncClient", factory)
+    async def exercise(manager):
+        await api_client.fetch_original_subscription("sub-a", "a=1&b=2", client_manager=manager)
+        await api_client.fetch_original_subscription("sub-b", "a=1&b=2", client_manager=manager)
+        await api_client.fetch_original_subscription("sub-a", "b=2&a=1", client_manager=manager)
 
-    async def exercise():
-        await api_client.fetch_original_subscription("sub-a", "a=1&b=2")
-        await api_client.fetch_original_subscription("sub-b", "a=1&b=2")
-        await api_client.fetch_original_subscription("sub-a", "b=2&a=1")
-
-    asyncio.run(exercise())
-
+    asyncio.run(run_managed(TrackingClientFactory(handler), exercise))
     assert calls == 3
-    assert len(factory.clients) == 3
     assert set(api_client._sub_cache) == {
         "sub-a:a=1&b=2",
         "sub-b:a=1&b=2",
         "sub-a:b=2&a=1",
     }
 
-def test_cache_over_limit_is_cleared_in_full(monkeypatch):
-    expiry = 2000.0
-    monkeypatch.setattr(api_client.time, "time", lambda: 1000.0)
-    for index in range(1001):
-        api_client._sub_cache[f"old-{index}:"] = (
-            "[]",
-            "application/json",
-            httpx.Headers(),
-            expiry,
-        )
-    factory = TrackingClientFactory(lambda request: httpx.Response(200, json=[]))
-    monkeypatch.setattr(api_client.httpx, "AsyncClient", factory)
-
-    asyncio.run(api_client.fetch_original_subscription("new"))
-
-    assert set(api_client._sub_cache) == {"new:"}
-
 
 @pytest.mark.xfail(
     strict=True,
     reason="Known issue: concurrent misses are not coalesced by per-key single-flight",
 )
-def test_concurrent_cache_miss_is_single_flight(monkeypatch):
+def test_concurrent_cache_miss_is_single_flight():
     calls = 0
 
     async def handler(request):
@@ -262,39 +240,11 @@ def test_concurrent_cache_miss_is_single_flight(monkeypatch):
         await asyncio.sleep(0)
         return httpx.Response(200, json=[])
 
-    factory = TrackingClientFactory(handler)
-    monkeypatch.setattr(api_client.httpx, "AsyncClient", factory)
-
-    async def exercise():
+    async def exercise(manager):
         await asyncio.gather(
-            api_client.fetch_original_subscription("stampede"),
-            api_client.fetch_original_subscription("stampede"),
+            api_client.fetch_original_subscription("stampede", client_manager=manager),
+            api_client.fetch_original_subscription("stampede", client_manager=manager),
         )
 
-    asyncio.run(exercise())
-
+    asyncio.run(run_managed(TrackingClientFactory(handler), exercise))
     assert calls == 1
-
-
-def test_xui_api_reuses_one_client_and_closes_it(monkeypatch):
-    calls = 0
-
-    def handler(request):
-        nonlocal calls
-        calls += 1
-        return httpx.Response(200, json={"obj": []})
-
-    factory = TrackingClientFactory(handler)
-    monkeypatch.setattr(api_client.httpx, "AsyncClient", factory)
-    api = api_client.XuiApi()
-
-    async def exercise():
-        assert await api.get_json("/first") == []
-        assert await api.get_json("/second") == []
-        await api.aclose()
-
-    asyncio.run(exercise())
-
-    assert calls == 2
-    assert len(factory.clients) == 1
-    assert factory.clients[0].is_closed

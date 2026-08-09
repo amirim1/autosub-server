@@ -4,6 +4,16 @@ All notable changes to AutoSub Server will be documented in this file.
 
 ## [v2.1.0] - 2026-07-31
 
+2026-08-09: Перенести upstream HTTP-клиенты под управление FastAPI lifespan:
+переиспользовать bounded connection pools, изолировать 3x-ui sessions, добавить
+явные phase timeouts и response-size limits, безопасную ротацию credentials и
+гарантированное закрытие при shutdown (завершено).
+
+2026-08-09: Move upstream HTTP clients under FastAPI lifespan management: reuse
+bounded connection pools, isolate 3x-ui sessions, enforce explicit phase timeouts
+and response-size limits, rotate credentials safely, and close resources reliably
+during shutdown (completed).
+
 2026-08-04: Сделать SQLite-миграции транзакционными, добавить integrity checks и консистентный backup перед upgrade - ошибки больше не повышают `schema_version`, startup завершается с rollback (завершено).
 
 2026-08-04: Заменить process-local CSRF store на reusable HMAC-SHA256 tokens и перенести backup root в `/opt/autosub-server/shared/backups/` - админ-формы совместимы с restart/workers без server-side token state (завершено).

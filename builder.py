@@ -2,7 +2,7 @@ import copy
 import json
 import time
 
-from api_client import get_xui_api, fetch_original_subscription, normalize_subscription
+from api_client import fetch_original_subscription, normalize_subscription
 from config import env_get
 from fingerprint import (
     canonical_node_id,
@@ -237,12 +237,14 @@ def _sub_headers(resp_headers):
     return h
 
 
-async def build_for_subscription(sub_id, storage, query=""):
+async def build_for_subscription(sub_id, storage, query="", http_manager=None):
     sub_ref = fingerprint_secret(sub_id)
     cfg_probe_url, cfg_probe_interval = await storage.get_probe_config()
 
     try:
-        original_text, content_type, resp_headers = await fetch_original_subscription(sub_id, query=query)
+        original_text, content_type, resp_headers = await fetch_original_subscription(
+            sub_id, query=query, client_manager=http_manager
+        )
     except Exception as exc:
         log(f"sub_id_hash={sub_ref}: failed to fetch upstream subscription")
         raise RuntimeError("Failed to fetch upstream subscription") from exc
@@ -261,7 +263,7 @@ async def build_for_subscription(sub_id, storage, query=""):
     sub_userinfo_env = env_get("SUB_USERINFO", "")
 
     sub_headers = _sub_headers(resp_headers)
-    client = await resolve_client(sub_id, storage)
+    client = await resolve_client(sub_id, storage, http_manager=http_manager)
 
     if sub_title_env:
         sub_headers["Profile-Title"] = sub_title_env
@@ -504,7 +506,7 @@ async def build_for_subscription(sub_id, storage, query=""):
     return json.dumps(cleaned_output, ensure_ascii=False, separators=(",", ":")), "application/json; charset=utf-8", sub_headers
 
 
-async def resolve_client(sub_id, storage):
+async def resolve_client(sub_id, storage, http_manager=None):
     """
     Resolve client with groups. Public API.
     Priority:
@@ -522,20 +524,21 @@ async def resolve_client(sub_id, storage):
         if key in overrides:
             return {"email": key, "sub_id": sub_id, "groups": overrides[key], "source": "override"}
 
-    try:
-        api = get_xui_api()
-        client = await api.find_client_by_sub_id(sub_id)
-        if client:
-            email = client.get("email") or ""
-            if email in overrides:
-                merged = list(dict.fromkeys(client.get("groups", []) + overrides[email]))
-                client["groups"] = merged
-                client["source"] = "api+override"
-            else:
-                client["source"] = "api"
-            return client
-    except Exception:
-        log(f"sub_id_hash={fingerprint_secret(sub_id)}: API fallback failed")
+    if http_manager is not None:
+        try:
+            async with http_manager.panel_api() as api:
+                client = await api.find_client_by_sub_id(sub_id) if api else None
+                if client:
+                    email = client.get("email") or ""
+                    if email in overrides:
+                        merged = list(dict.fromkeys(client.get("groups", []) + overrides[email]))
+                        client["groups"] = merged
+                        client["source"] = "api+override"
+                    else:
+                        client["source"] = "api"
+                    return client
+        except Exception:
+            log(f"sub_id_hash={fingerprint_secret(sub_id)}: API fallback failed")
 
     if sub_id in overrides:
         return {"email": sub_id, "sub_id": sub_id, "groups": overrides[sub_id], "source": "override"}
@@ -543,8 +546,10 @@ async def resolve_client(sub_id, storage):
     return None
 
 
-async def discover_nodes_from_sub_id(sub_id):
-    text, _, _ = await fetch_original_subscription(sub_id)
+async def discover_nodes_from_sub_id(sub_id, http_manager=None):
+    text, _, _ = await fetch_original_subscription(
+        sub_id, client_manager=http_manager
+    )
     profiles = normalize_subscription(text)
     result = []
     for i, profile in enumerate(profiles):
@@ -554,9 +559,9 @@ async def discover_nodes_from_sub_id(sub_id):
     return result
 
 
-async def resolve_security_flags(sub_id, storage, client=None):
+async def resolve_security_flags(sub_id, storage, client=None, http_manager=None):
     if not client:
-        client = await resolve_client(sub_id, storage)
+        client = await resolve_client(sub_id, storage, http_manager=http_manager)
     try:
         sec_rules = await storage.get_security_rules()
         if not isinstance(sec_rules, dict):

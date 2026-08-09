@@ -19,7 +19,8 @@ from logging_utils import fingerprint_secret
 from http_security import RequestContextMiddleware, json_error, plain_error
 from csrf import create_csrf_manager
 from storage import Storage
-from api_client import close_xui_api, fetch_original_sub_html
+from api_client import fetch_original_sub_html
+from http_clients import HttpClientManager
 from builder import build_for_subscription, discover_nodes_from_sub_id, resolve_security_flags
 from dashboard import (
     render_admin,
@@ -105,25 +106,27 @@ async def lifespan(app: FastAPI):
         )
     ensure_app_dir()
     await storage.connect()
-    if CONFIG_PATH.exists():
-        cfg = load_config()
-        migrated = await storage.migrate_from_config(cfg)
-        if migrated:
-            logger.info("config.json migrated to SQLite")
-    else:
-        logger.warning(f"config.json not found at {CONFIG_PATH}, starting fresh")
-    logger.info(f"AutoSub Server v{VERSION} started")
-    logger.info(f"DB: {DB_PATH}")
-    if admin_password.strip():
-        logger.info("Admin dashboard: Basic Auth enabled")
-    else:
-        logger.warning("Admin dashboard: passwordless access enabled on loopback bind")
-        
+    http_clients = HttpClientManager(env_getter=env_get)
+    app.state.http_clients = http_clients
     try:
+        await http_clients.start()
+        if CONFIG_PATH.exists():
+            cfg = load_config()
+            migrated = await storage.migrate_from_config(cfg)
+            if migrated:
+                logger.info("config.json migrated to SQLite")
+        else:
+            logger.warning(f"config.json not found at {CONFIG_PATH}, starting fresh")
+        logger.info(f"AutoSub Server v{VERSION} started")
+        logger.info(f"DB: {DB_PATH}")
+        if admin_password.strip():
+            logger.info("Admin dashboard: Basic Auth enabled")
+        else:
+            logger.warning("Admin dashboard: passwordless access enabled on loopback bind")
         yield
     finally:
         try:
-            await close_xui_api()
+            await http_clients.close()
         finally:
             await storage.close()
         logger.info("AutoSub Server stopped")
@@ -255,7 +258,11 @@ async def handle_json_route(sub_id: str, request: Request):
 
     if is_browser and request.url.path.startswith("/sub/"):
         try:
-            html_content, ctype, status_code = await fetch_original_sub_html(sub_id, request.headers)
+            html_content, ctype, status_code = await fetch_original_sub_html(
+                sub_id,
+                request.headers,
+                client_manager=request.app.state.http_clients,
+            )
             return HTMLResponse(content=html_content, status_code=status_code)
         except Exception as err:
             logger.warning(
@@ -266,7 +273,12 @@ async def handle_json_route(sub_id: str, request: Request):
 
     try:
         query = request.url.query
-        output, ctype, sub_headers = await build_for_subscription(sub_id, storage, query=query)
+        output, ctype, sub_headers = await build_for_subscription(
+            sub_id,
+            storage,
+            query=query,
+            http_manager=request.app.state.http_clients,
+        )
         
         SKIP_HEADERS = {
             "content-length",
@@ -291,7 +303,9 @@ async def handle_json_route(sub_id: str, request: Request):
             headers[key] = header_val
             
         media_type = ctype if "json" in ctype else "application/json; charset=utf-8"
-        sec_flags = await resolve_security_flags(sub_id, storage)
+        sec_flags = await resolve_security_flags(
+            sub_id, storage, http_manager=request.app.state.http_clients
+        )
         for key in list(headers):
             if key.lower() == "hide-settings":
                 headers.pop(key)
@@ -310,7 +324,12 @@ async def handle_json_route(sub_id: str, request: Request):
 @app.get("/admin", dependencies=[Depends(verify_admin)])
 async def admin_page(request: Request):
     csrf_token = request.app.state.csrf_manager.generate()
-    return await render_admin(request, storage, csrf_token=csrf_token)
+    return await render_admin(
+        request,
+        storage,
+        csrf_token=csrf_token,
+        client_manager=request.app.state.http_clients,
+    )
 
 
 @app.get("/admin/preview", dependencies=[Depends(verify_admin)])
@@ -319,25 +338,27 @@ async def admin_preview(request: Request, sub_id: str = ""):
     if not sub_id:
         return RedirectResponse(url="/admin", status_code=303)
     try:
-        return await render_preview(request, storage, sub_id)
+        return await render_preview(
+            request, storage, sub_id, request.app.state.http_clients
+        )
     except Exception:
         logger.exception("Admin preview generation failed")
         return plain_error("Preview generation failed", 500)
 
 
 @app.get("/admin/api-test", dependencies=[Depends(verify_admin)])
-async def admin_api_test():
-    content = await render_api_test()
+async def admin_api_test(request: Request):
+    content = await render_api_test(request.app.state.http_clients)
     return Response(content=content, media_type="application/json; charset=utf-8")
 
 
 @app.get("/admin/debug", dependencies=[Depends(verify_admin)])
-async def admin_debug(sub_id: str = ""):
+async def admin_debug(request: Request, sub_id: str = ""):
     sub_id = sub_id.strip()
     if not sub_id:
         return json_error("sub_id is required", 400)
     try:
-        content = await render_debug(storage, sub_id)
+        content = await render_debug(storage, sub_id, request.app.state.http_clients)
         return Response(content=content, media_type="application/json; charset=utf-8")
     except Exception:
         logger.exception("Admin debug generation failed")
@@ -388,7 +409,9 @@ async def admin_discover(request: Request, sub_id: str = Form(""), csrf: str = F
     if not sub_id:
         return RedirectResponse(url="/admin", status_code=303)
     try:
-        nodes = await discover_nodes_from_sub_id(sub_id)
+        nodes = await discover_nodes_from_sub_id(
+            sub_id, request.app.state.http_clients
+        )
         await storage.set_node_catalog(nodes)
         return RedirectResponse(url=f"/admin?msg=Каталог+успешно+обновлен:+{len(nodes)}+нод", status_code=303)
     except Exception:

@@ -34,7 +34,6 @@ def _request(peer, headers=None):
 def client(monkeypatch, tmp_path):
     fake_storage = AsyncMock()
     monkeypatch.setattr(autosub_server, "storage", fake_storage)
-    monkeypatch.setattr(autosub_server, "close_xui_api", AsyncMock())
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
     monkeypatch.setattr(autosub_server, "render_api_test", AsyncMock(return_value="{}"))

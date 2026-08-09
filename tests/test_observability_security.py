@@ -30,7 +30,6 @@ def client(monkeypatch, tmp_path):
     fake_storage.get_security_rules.return_value = {}
     fake_storage.get_probe_config.return_value = ("", "60s")
     monkeypatch.setattr(autosub_server, "storage", fake_storage)
-    monkeypatch.setattr(autosub_server, "close_xui_api", AsyncMock())
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
     monkeypatch.setattr(autosub_server, "env_get", lambda key, default="": default)
@@ -115,7 +114,6 @@ def test_lifespan_startup_and_shutdown_logs_use_placeholder(
 ):
     fake_storage = AsyncMock()
     monkeypatch.setattr(autosub_server, "storage", fake_storage)
-    monkeypatch.setattr(autosub_server, "close_xui_api", AsyncMock())
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
     monkeypatch.setattr(autosub_server, "env_get", lambda key, default="": default)

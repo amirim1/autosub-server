@@ -67,6 +67,9 @@ include = [
     "database_errors.py",
     "database_schema.py",
     "dashboard.py",
+    "http_client_config.py",
+    "http_client_errors.py",
+    "http_clients.py",
     "logger.py",
     "migrations.py",
 ]

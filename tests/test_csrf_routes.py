@@ -54,7 +54,6 @@ def client(monkeypatch, tmp_path):
         "AUTOSUB_SECRET_KEY": SECRET,
     }
     monkeypatch.setattr(autosub_server, "storage", fake_storage)
-    monkeypatch.setattr(autosub_server, "close_xui_api", AsyncMock())
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
     monkeypatch.setattr(autosub_server, "env_get", lambda key, default="": values.get(key, default))
@@ -153,7 +152,6 @@ def test_lifespan_loopback_fallback_warns_without_disclosing_secret(
 ):
     fake_storage = AsyncMock()
     monkeypatch.setattr(autosub_server, "storage", fake_storage)
-    monkeypatch.setattr(autosub_server, "close_xui_api", AsyncMock())
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
     monkeypatch.setattr(autosub_server, "env_get", lambda key, default="": default)
@@ -202,7 +200,6 @@ def test_lifespan_accepts_non_loopback_with_strong_secret(monkeypatch, tmp_path)
         "AUTOSUB_SECRET_KEY": SECRET,
     }
     monkeypatch.setattr(autosub_server, "storage", fake_storage)
-    monkeypatch.setattr(autosub_server, "close_xui_api", AsyncMock())
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
     monkeypatch.setattr(autosub_server, "env_get", lambda key, default="": values.get(key, default))

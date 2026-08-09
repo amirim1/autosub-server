@@ -144,7 +144,7 @@ XUI_API_TOKEN=
 # Fallback 3x-ui URL
 XUI_URL=https://sub.your-domain.com:2096
 
-# Verify TLS certificates (true/false)
+# Verify the 3x-ui API panel TLS certificate (true/false)
 XUI_TLS_VERIFY=true
 
 # 3x-ui username & password (if API token is not used)
@@ -154,6 +154,24 @@ XUI_PASSWORD=change_me
 # Optional custom subscription title header
 # SUB_TITLE=My VPN
 ```
+
+### Managed HTTP clients
+
+AutoSub creates HTTP clients at application startup, reuses their connection pools,
+and closes them during shutdown. Public upstream requests use a stateless pool, while
+3x-ui sessions are isolated by panel address and credentials; the panel-client cache
+is bounded to 16 entries.
+
+Connect/read/write/pool timeouts are `5/20/10/5` seconds for the panel API and
+`5/30/10/5` seconds for subscription reads. The pool is limited to 20 connections,
+10 keep-alive connections, and a 30-second keep-alive expiry. Responses are limited
+to 4 MiB for panel JSON, 8 MiB for subscriptions, and 1 MiB for HTML. Redirects are
+not followed automatically.
+
+TLS certificates are verified by default. Existing `XUI_TLS_VERIFY=false` support
+applies only to that self-signed API panel and does not disable verification for the
+public upstream pool. It weakens interception protection and should be used only on a
+trusted network. No installation or public-route changes are required.
 
 ---
 

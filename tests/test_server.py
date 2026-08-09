@@ -76,9 +76,13 @@ def test_client_ip_falls_back_safely_for_malformed_headers(monkeypatch):
 
 def test_lifespan_closes_http_client_and_storage(monkeypatch, tmp_path):
     fake_storage = AsyncMock()
-    close_api = AsyncMock()
+    fake_manager = AsyncMock()
     monkeypatch.setattr(autosub_server, "storage", fake_storage)
-    monkeypatch.setattr(autosub_server, "close_xui_api", close_api)
+    monkeypatch.setattr(
+        autosub_server,
+        "HttpClientManager",
+        lambda env_getter: fake_manager,
+    )
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
 
@@ -89,7 +93,8 @@ def test_lifespan_closes_http_client_and_storage(monkeypatch, tmp_path):
     asyncio.run(exercise())
 
     fake_storage.connect.assert_awaited_once()
-    close_api.assert_awaited_once()
+    fake_manager.start.assert_awaited_once()
+    fake_manager.close.assert_awaited_once()
     fake_storage.close.assert_awaited_once()
 
 
@@ -97,7 +102,6 @@ def test_lifespan_closes_http_client_and_storage(monkeypatch, tmp_path):
 def http_client(monkeypatch, tmp_path):
     fake_storage = AsyncMock()
     monkeypatch.setattr(autosub_server, "storage", fake_storage)
-    monkeypatch.setattr(autosub_server, "close_xui_api", AsyncMock())
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
     monkeypatch.setattr(autosub_server, "env_get", lambda key, default="": default)

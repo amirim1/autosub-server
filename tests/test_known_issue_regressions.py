@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from contextlib import asynccontextmanager
 from html.parser import HTMLParser
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -13,11 +14,19 @@ import builder
 import dashboard
 
 
+class _PanelManager:
+    def __init__(self, api):
+        self.api = api
+
+    @asynccontextmanager
+    async def panel_api(self):
+        yield self.api
+
+
 @pytest.fixture
 def client(monkeypatch, tmp_path):
     fake_storage = AsyncMock()
     monkeypatch.setattr(autosub_server, "storage", fake_storage)
-    monkeypatch.setattr(autosub_server, "close_xui_api", AsyncMock())
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
     monkeypatch.setattr(autosub_server, "env_get", lambda key, default="": default)
@@ -190,10 +199,9 @@ def test_admin_api_test_does_not_return_internal_url(monkeypatch, caplog):
     api.csrf_token = ""
     api.cookie_header = ""
     api.login.side_effect = RuntimeError(secret)
-    monkeypatch.setattr(dashboard, "get_xui_api", lambda: api)
     caplog.set_level(logging.ERROR, logger="autosub")
 
-    payload = json.loads(asyncio.run(dashboard.render_api_test()))
+    payload = json.loads(asyncio.run(dashboard.render_api_test(_PanelManager(api))))
 
     assert payload == {"ok": False, "error": "Connection failed"}
     assert internal_url not in json.dumps(payload)
@@ -210,9 +218,7 @@ def test_admin_api_test_success_does_not_return_internal_url(monkeypatch):
     api.cookie_header = "session=true"
     api.inbounds.return_value = []
     api.group_map.return_value = {}
-    monkeypatch.setattr(dashboard, "get_xui_api", lambda: api)
-
-    payload = json.loads(asyncio.run(dashboard.render_api_test()))
+    payload = json.loads(asyncio.run(dashboard.render_api_test(_PanelManager(api))))
 
     assert payload["ok"] is True
     assert payload["message"] == "Connection successful"

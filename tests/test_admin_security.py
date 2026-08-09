@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -30,7 +31,6 @@ ADMIN_ROUTES = [
 def client(monkeypatch, tmp_path):
     fake_storage = AsyncMock()
     monkeypatch.setattr(autosub_server, "storage", fake_storage)
-    monkeypatch.setattr(autosub_server, "close_xui_api", AsyncMock())
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
     monkeypatch.setattr(autosub_server, "render_api_test", AsyncMock(return_value="{}"))
@@ -213,13 +213,16 @@ def test_admin_debug_error_is_generic_json(client, monkeypatch, caplog):
 def test_admin_client_list_error_is_generic(monkeypatch, caplog):
     secret = "https://internal-panel.example/secret?token=abc123"
 
-    def fail_api_lookup():
+    @asynccontextmanager
+    async def fail_api_lookup():
         raise RuntimeError(secret)
+        yield
 
-    monkeypatch.setattr(dashboard, "get_xui_api", fail_api_lookup)
+    manager = AsyncMock()
+    manager.panel_api = fail_api_lookup
     caplog.set_level(logging.ERROR, logger="autosub")
 
-    clients, error = asyncio.run(dashboard.api_clients_safe())
+    clients, error = asyncio.run(dashboard.api_clients_safe(manager))
 
     assert clients == []
     assert error == "API connection failed"
