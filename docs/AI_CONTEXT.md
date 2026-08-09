@@ -10,7 +10,11 @@ Python 3.10+, FastAPI/Uvicorn, httpx, aiosqlite, Jinja2, pytest/pytest-asyncio, 
 
 ## Architecture Overview
 
-HTTP и lifecycle находятся в `autosub_server.py`; бизнес-логика подписок — в `builder.py`; 3x-ui integration — в `api_client.py`; persistence — в `storage.py`; dashboard — в `dashboard.py`, `templates/`, `static/`; конфигурация — в `config.py`; fingerprinting — в `fingerprint.py`.
+HTTP и lifecycle находятся в `autosub_server.py`; bounded rate limiting и trusted
+proxy resolution — в `rate_limiter.py`; бизнес-логика подписок — в `builder.py`;
+3x-ui integration — в `api_client.py`; persistence — в `storage.py`; dashboard —
+в `dashboard.py`, `templates/`, `static/`; конфигурация — в `config.py`;
+fingerprinting — в `fingerprint.py`.
 
 Поток запроса подписки: `/json/{sub_id}` или `/sub/{sub_id}` → upstream 3x-ui → нормализация и autoselect в `builder.py` → группы/правила из SQLite → JSON. Для legacy `/sub/` браузер получает HTML 3x-ui, VPN-клиент — JSON.
 

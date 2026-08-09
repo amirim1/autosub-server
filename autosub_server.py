@@ -3,8 +3,6 @@ import base64
 import ipaddress
 import os
 import secrets
-import time
-from collections import defaultdict
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response, Depends, Form, HTTPException, status
@@ -22,6 +20,7 @@ from storage import Storage
 from api_client import fetch_original_sub_html
 from http_clients import HttpClientManager
 from subscription_cache import SubscriptionCache
+from rate_limiter import ClientIpResolver, RateLimiter, RateLimitPolicy
 from builder import build_for_subscription, discover_nodes_from_sub_id, resolve_security_flags
 from dashboard import (
     render_admin,
@@ -34,6 +33,13 @@ from dashboard import (
 storage = Storage(DB_PATH)
 
 security = HTTPBasic(auto_error=False)
+
+DEFAULT_TRUSTED_PROXIES = "127.0.0.1/32,::1/128"
+PUBLIC_RATE_LIMIT = RateLimitPolicy("public", limit=60, window=60.0)
+ADMIN_RATE_LIMIT = RateLimitPolicy("admin-auth", limit=20, window=60.0)
+EXPENSIVE_ADMIN_RATE_LIMIT = RateLimitPolicy(
+    "admin-expensive", limit=10, window=60.0
+)
 
 
 class AdminSecurityConfigError(RuntimeError):
@@ -84,6 +90,67 @@ def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
     )
 
 
+class RateLimitExceeded(RuntimeError):
+    def __init__(self, policy, retry_after):
+        super().__init__("rate limit exceeded")
+        self.policy = policy
+        self.retry_after = retry_after
+
+
+def _client_ip(request: Request) -> str:
+    cached = getattr(request.state, "rate_limit_client_ip", None)
+    if cached is not None:
+        return cached
+    scope_app = request.scope.get("app")
+    app_state = getattr(scope_app, "state", None)
+    resolver = getattr(app_state, "client_ip_resolver", None)
+    if resolver is None:
+        resolver = ClientIpResolver(
+            env_get("AUTOSUB_TRUSTED_PROXIES", DEFAULT_TRUSTED_PROXIES)
+        )
+    peer = request.client.host if request.client else ""
+    resolved = resolver.resolve(
+        peer,
+        request.headers.get("X-Forwarded-For", ""),
+        request.headers.get("X-Real-IP", ""),
+    )
+    if resolved.malformed_peer:
+        logger.warning("Malformed direct client address")
+    elif resolved.malformed_forwarded:
+        logger.warning("Malformed forwarded client address")
+    request.state.rate_limit_client_ip = resolved.ip
+    return resolved.ip
+
+
+async def _enforce_rate_limit(request, policy):
+    client_ip = _client_ip(request)
+    decision = await request.app.state.rate_limiter.check(client_ip, policy)
+    if decision.allowed:
+        return client_ip
+    logger.warning(
+        "Rate limit exceeded policy=%s client_hash=%s",
+        policy.name,
+        fingerprint_secret(client_ip),
+    )
+    raise RateLimitExceeded(policy.name, decision.retry_after)
+
+
+async def enforce_admin_access(
+    request: Request,
+    credentials: HTTPBasicCredentials = Depends(security),
+):
+    await _enforce_rate_limit(request, ADMIN_RATE_LIMIT)
+    return verify_admin(credentials)
+
+
+async def enforce_expensive_admin_access(
+    request: Request,
+    _authenticated: bool = Depends(enforce_admin_access),
+):
+    await _enforce_rate_limit(request, EXPENSIVE_ADMIN_RATE_LIMIT)
+    return _authenticated
+
+
 def _csrf_error(request: Request, token: object | None) -> Response | None:
     if request.app.state.csrf_manager.verify(token, scope="admin"):
         return None
@@ -115,6 +182,9 @@ async def lifespan(app: FastAPI):
     admin_host = str(env_get("AUTOSUB_HOST", "127.0.0.1") or "")
     admin_password = str(env_get("AUTOSUB_ADMIN_PASSWORD", "") or "")
     validate_admin_security_config(admin_host, admin_password)
+    client_ip_resolver = ClientIpResolver(
+        env_get("AUTOSUB_TRUSTED_PROXIES", DEFAULT_TRUSTED_PROXIES)
+    )
     csrf_manager, generated_csrf_secret = create_csrf_manager(
         admin_host,
         env_get("AUTOSUB_SECRET_KEY", ""),
@@ -129,8 +199,11 @@ async def lifespan(app: FastAPI):
     await storage.connect()
     http_clients = HttpClientManager(env_getter=env_get)
     subscription_cache = SubscriptionCache()
+    rate_limiter = RateLimiter()
     app.state.http_clients = http_clients
     app.state.subscription_cache = subscription_cache
+    app.state.client_ip_resolver = client_ip_resolver
+    app.state.rate_limiter = rate_limiter
     try:
         await http_clients.start()
         if CONFIG_PATH.exists():
@@ -161,6 +234,21 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(RequestContextMiddleware)
 
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_error(request: Request, error: RateLimitExceeded):
+    if request.url.path == "/admin" or request.url.path.startswith("/admin/"):
+        response = plain_error("Too Many Requests", 429)
+    else:
+        response = json_error(
+            "Too Many Requests",
+            429,
+            detail="Rate limit exceeded. Please try again later.",
+        )
+    response.headers["Retry-After"] = str(error.retry_after)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
 # Mount static files securely
 static_dir = APP_DIR / "static"
 if static_dir.exists():
@@ -176,103 +264,10 @@ async def health():
     return PlainTextResponse(f"AutoSub Server v{VERSION} OK")
 
 
-# Rate limiting store (in-memory)
-_ip_requests = defaultdict(list)
-RATE_LIMIT_WINDOW = 60  # seconds
-RATE_LIMIT_MAX_REQUESTS = 30  # max requests per window
-_last_ip_cleanup = 0
-
-DEFAULT_TRUSTED_PROXIES = "127.0.0.1/32,::1/128"
-
-
-def _parse_trusted_proxies(value: str):
-    networks = []
-    for item in (value or "").split(","):
-        item = item.strip()
-        if not item:
-            continue
-        try:
-            networks.append(ipaddress.ip_network(item, strict=False))
-        except ValueError:
-            logger.warning(f"Ignoring invalid trusted proxy address/network: {item}")
-    return networks
-
-
-def _client_ip(request: Request) -> str:
-    peer = request.client.host if request.client else ""
-    try:
-        peer_ip = ipaddress.ip_address(peer)
-    except ValueError:
-        if peer:
-            logger.warning(f"Ignoring invalid request peer address: {peer}")
-        return "unknown"
-
-    trusted = _parse_trusted_proxies(
-        env_get("AUTOSUB_TRUSTED_PROXIES", DEFAULT_TRUSTED_PROXIES)
-    )
-    if not any(peer_ip in network for network in trusted):
-        return str(peer_ip)
-
-    forwarded = []
-    for item in request.headers.get("X-Forwarded-For", "").split(","):
-        item = item.strip()
-        if not item:
-            continue
-        try:
-            forwarded.append(ipaddress.ip_address(item))
-        except ValueError:
-            logger.warning(f"Ignoring invalid X-Forwarded-For address: {item}")
-
-    for candidate in reversed(forwarded):
-        if not any(candidate in network for network in trusted):
-            return str(candidate)
-
-    real_ip = request.headers.get("X-Real-IP", "").strip()
-    if real_ip:
-        try:
-            return str(ipaddress.ip_address(real_ip))
-        except ValueError:
-            logger.warning(f"Ignoring invalid X-Real-IP address: {real_ip}")
-
-    return str(peer_ip)
-
-
-def _check_rate_limit(ip: str) -> bool:
-    if not ip:
-        return True
-    now = time.time()
-    
-    global _last_ip_cleanup
-    if now - _last_ip_cleanup > 300:  # Cleanup every 5 mins
-        _last_ip_cleanup = now
-        stale_ips = [k for k, times in _ip_requests.items() if not times or now - times[-1] > RATE_LIMIT_WINDOW]
-        for k in stale_ips:
-            _ip_requests.pop(k, None)
-
-    # Remove timestamps older than window
-    _ip_requests[ip] = [t for t in _ip_requests[ip] if now - t < RATE_LIMIT_WINDOW]
-    if len(_ip_requests[ip]) >= RATE_LIMIT_MAX_REQUESTS:
-        return False
-    _ip_requests[ip].append(now)
-    return True
-
-
 @app.get("/json/{sub_id}")
 @app.get("/sub/{sub_id}")
 async def handle_json_route(sub_id: str, request: Request):
-    client_ip = _client_ip(request)
-
-    if not _check_rate_limit(client_ip):
-        logger.warning(
-            "Rate limit exceeded for IP: %s sub_id_hash=%s",
-            client_ip,
-            fingerprint_secret(sub_id),
-        )
-        return json_error(
-            "Too Many Requests",
-            429,
-            detail="Rate limit exceeded. Please try again later.",
-        )
+    await _enforce_rate_limit(request, PUBLIC_RATE_LIMIT)
 
     # Detect if request is coming from a web browser (e.g., Chrome/Firefox opening /sub/ link)
     accept_header = request.headers.get("accept", "").lower()
@@ -359,7 +354,7 @@ async def handle_json_route(sub_id: str, request: Request):
         return json_error("Internal server error", 500)
 
 
-@app.get("/admin", dependencies=[Depends(verify_admin)])
+@app.get("/admin", dependencies=[Depends(enforce_admin_access)])
 async def admin_page(request: Request):
     csrf_token = request.app.state.csrf_manager.generate()
     return await render_admin(
@@ -370,7 +365,7 @@ async def admin_page(request: Request):
     )
 
 
-@app.get("/admin/preview", dependencies=[Depends(verify_admin)])
+@app.get("/admin/preview", dependencies=[Depends(enforce_expensive_admin_access)])
 async def admin_preview(request: Request, sub_id: str = ""):
     sub_id = sub_id.strip()
     if not sub_id:
@@ -384,13 +379,13 @@ async def admin_preview(request: Request, sub_id: str = ""):
         return plain_error("Preview generation failed", 500)
 
 
-@app.get("/admin/api-test", dependencies=[Depends(verify_admin)])
+@app.get("/admin/api-test", dependencies=[Depends(enforce_expensive_admin_access)])
 async def admin_api_test(request: Request):
     content = await render_api_test(request.app.state.http_clients)
     return Response(content=content, media_type="application/json; charset=utf-8")
 
 
-@app.get("/admin/debug", dependencies=[Depends(verify_admin)])
+@app.get("/admin/debug", dependencies=[Depends(enforce_admin_access)])
 async def admin_debug(request: Request, sub_id: str = ""):
     sub_id = sub_id.strip()
     if not sub_id:
@@ -403,7 +398,7 @@ async def admin_debug(request: Request, sub_id: str = ""):
         return json_error("Debug generation failed", 500)
 
 
-@app.post("/admin/save", dependencies=[Depends(verify_admin)])
+@app.post("/admin/save", dependencies=[Depends(enforce_admin_access)])
 async def admin_save(request: Request):
     form = await request.form()
     form_data = dict(form)
@@ -439,7 +434,7 @@ async def admin_save(request: Request):
         return plain_error("Settings save failed", 500)
 
 
-@app.post("/admin/discover", dependencies=[Depends(verify_admin)])
+@app.post("/admin/discover", dependencies=[Depends(enforce_expensive_admin_access)])
 async def admin_discover(request: Request, sub_id: str = Form(""), csrf: str = Form("", alias="_csrf")):
     csrf_error = _csrf_error(request, csrf)
     if csrf_error:
@@ -459,7 +454,7 @@ async def admin_discover(request: Request, sub_id: str = Form(""), csrf: str = F
         return plain_error("Node discovery failed", 500)
 
 
-@app.post("/admin/set-client-group", dependencies=[Depends(verify_admin)])
+@app.post("/admin/set-client-group", dependencies=[Depends(enforce_admin_access)])
 async def admin_set_client_group(request: Request, csrf: str = Form("", alias="_csrf"), sub_id: str = Form(""), email: str = Form(""), groups: str = Form("")):
     csrf_error = _csrf_error(request, csrf)
     if csrf_error:
@@ -472,7 +467,7 @@ async def admin_set_client_group(request: Request, csrf: str = Form("", alias="_
     return RedirectResponse(url="/admin", status_code=303)
 
 
-@app.post("/admin/delete-client-group", dependencies=[Depends(verify_admin)])
+@app.post("/admin/delete-client-group", dependencies=[Depends(enforce_admin_access)])
 async def admin_delete_client_group(request: Request, csrf: str = Form("", alias="_csrf"), sub_id: str = Form("")):
     csrf_error = _csrf_error(request, csrf)
     if csrf_error:
@@ -485,7 +480,7 @@ async def admin_delete_client_group(request: Request, csrf: str = Form("", alias
     return RedirectResponse(url="/admin", status_code=303)
 
 
-@app.post("/admin/add-autoselect", dependencies=[Depends(verify_admin)])
+@app.post("/admin/add-autoselect", dependencies=[Depends(enforce_admin_access)])
 async def admin_add_autoselect(
     request: Request,
     csrf: str = Form("", alias="_csrf"),
@@ -511,7 +506,7 @@ async def admin_add_autoselect(
     return RedirectResponse(url="/admin", status_code=303)
 
 
-@app.post("/admin/delete-autoselect", dependencies=[Depends(verify_admin)])
+@app.post("/admin/delete-autoselect", dependencies=[Depends(enforce_admin_access)])
 async def admin_delete_autoselect(
     request: Request,
     csrf: str = Form("", alias="_csrf"),

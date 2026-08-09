@@ -12,7 +12,7 @@ Returns plain text such as `AutoSub Server v<version> OK`.
 
 ### `GET /json/{sub_id}`
 
-Fetches the original 3x-ui subscription and returns generated JSON. `sub_id` is the subscription/client identifier. Query parameters are passed to the builder/upstream path as supported by the existing implementation. Responses may include subscription metadata headers. Rate-limit failures return HTTP 429 with a JSON error body; unexpected failures return HTTP 500.
+Fetches the original 3x-ui subscription and returns generated JSON. `sub_id` is the subscription/client identifier. Query parameters are passed to the builder/upstream path as supported by the existing implementation. Responses may include subscription metadata headers. Rate-limit failures return HTTP 429 with a JSON error body and `Retry-After`; unexpected failures return HTTP 500.
 
 ### `GET /sub/{sub_id}`
 
@@ -24,7 +24,9 @@ Serves dashboard assets when the configured static directory exists.
 
 ## Admin Routes
 
-All admin routes use `verify_admin`. If `AUTOSUB_ADMIN_PASSWORD` is empty, access is unauthenticated; production deployments should set it.
+All admin routes apply the admin-auth rate policy before `verify_admin`. If
+`AUTOSUB_ADMIN_PASSWORD` is empty, access is unauthenticated but still rate-limited;
+production deployments should set it.
 
 ### Read routes
 
@@ -50,7 +52,9 @@ FastAPI dependencies enforce admin authentication. CSRF uses expiring reusable
 HMAC-SHA256 tokens and keeps no server-side token store. Client IP resolution trusts
 `X-Real-IP`/`X-Forwarded-For` only when the direct peer belongs to
 `AUTOSUB_TRUSTED_PROXIES`. Rate limiting is process-local and therefore not a
-distributed protection mechanism.
+distributed protection mechanism. Public, admin-auth and expensive-admin operations
+use separate policies. Rejected requests return HTTP 429 with `Retry-After`,
+`X-Request-ID`, and `Cache-Control: no-store` before handler/cache/upstream work.
 
 ## Upstream Configuration
 

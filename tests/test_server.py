@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 import autosub_server
+from rate_limiter import RateLimitPolicy
 
 
 def _request(peer=None, headers=None):
@@ -59,11 +60,11 @@ def test_client_ip_uses_nearest_untrusted_forwarded_address(monkeypatch):
     assert autosub_server._client_ip(request) == "198.51.100.20"
 
 
-def test_client_ip_falls_back_safely_for_malformed_headers(monkeypatch):
+def test_client_ip_falls_back_safely_for_malformed_headers(monkeypatch, caplog):
     monkeypatch.setattr(
         autosub_server,
         "env_get",
-        lambda key, default="": "127.0.0.1/32,bad-network" if key == "AUTOSUB_TRUSTED_PROXIES" else default,
+        lambda key, default="": "127.0.0.1/32" if key == "AUTOSUB_TRUSTED_PROXIES" else default,
     )
     request = _request(
         "127.0.0.1",
@@ -72,6 +73,9 @@ def test_client_ip_falls_back_safely_for_malformed_headers(monkeypatch):
 
     assert autosub_server._client_ip(request) == "127.0.0.1"
     assert autosub_server._client_ip(_request()) == "unknown"
+    assert "Malformed forwarded client address" in caplog.text
+    assert "not-an-ip" not in caplog.text
+    assert "also-not-an-ip" not in caplog.text
 
 
 def test_lifespan_closes_http_client_and_storage(monkeypatch, tmp_path):
@@ -113,7 +117,6 @@ def http_client(monkeypatch, tmp_path):
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
     monkeypatch.setattr(autosub_server, "env_get", lambda key, default="": default)
-    autosub_server._ip_requests.clear()
     with TestClient(autosub_server.app) as client:
         yield client, fake_storage
 
@@ -172,8 +175,11 @@ def test_empty_http_subscription_and_rate_limit(http_client, monkeypatch):
     monkeypatch.setattr(
         autosub_server, "resolve_security_flags", AsyncMock(return_value={})
     )
-    monkeypatch.setattr(autosub_server, "_client_ip", lambda request: "192.0.2.10")
-    monkeypatch.setattr(autosub_server, "RATE_LIMIT_MAX_REQUESTS", 1)
+    monkeypatch.setattr(
+        autosub_server,
+        "PUBLIC_RATE_LIMIT",
+        RateLimitPolicy("server-test", 1, 60),
+    )
 
     first = client.get("/json/empty")
     second = client.get("/json/empty")

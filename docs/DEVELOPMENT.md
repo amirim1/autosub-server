@@ -32,6 +32,7 @@ curl http://127.0.0.1:25500/health
 
 ```bash
 python -m pytest -q
+python -m pytest tests/test_rate_limiter.py tests/test_rate_limit_routes.py -q
 python -m compileall -q *.py
 ```
 
@@ -67,4 +68,6 @@ bash -n install.sh update.sh setup_nginx.sh finish_setup.sh
 - Public proxy: `curl -k https://<domain>:<port>/json/<sub_id>`.
 - Confirm `XUI_SUB_URL` and `XUI_API_URL` are distinct and valid.
 - Confirm `AUTOSUB_ADMIN_PASSWORD` and `AUTOSUB_TRUSTED_PROXIES` are set appropriately.
+- Keep `AUTOSUB_TRUSTED_PROXIES` limited to actual reverse-proxy IPs/CIDRs. Empty
+  disables forwarded-header trust; invalid and world-wide networks fail startup.
 - Do not treat a passing pytest run as proof that systemd, Nginx, certificates or an external 3x-ui instance work.

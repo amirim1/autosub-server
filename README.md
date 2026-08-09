@@ -154,7 +154,8 @@ bash /opt/autosub-server/setup_nginx.sh sub.your-domain.com 2097
 AUTOSUB_HOST=127.0.0.1
 AUTOSUB_PORT=25500
 
-# Доверенные reverse-proxy (IP/CIDR через запятую). Только от них принимаются X-Real-IP/X-Forwarded-For
+# Доверенные reverse-proxy (IP/CIDR через запятую). Только от них принимаются X-Real-IP/X-Forwarded-For.
+# Пустое значение отключает доверие; ошибочная или глобальная сеть останавливает startup.
 AUTOSUB_TRUSTED_PROXIES=127.0.0.1/32,::1/128
 
 # Basic Auth для админ-панели /admin. Обязательно замените примерный пароль.
@@ -218,6 +219,22 @@ upstream pool. Режим снижает защиту от перехвата; �
 админ-панель переключают поколение кэша. HTML и admin preview этот кэш обходят.
 Кэш локален для одного Uvicorn-процесса; Redis для штатного однопроцессного
 развёртывания не требуется.
+
+### Ограничение частоты запросов
+
+Process-local sliding-window limiter хранит не более 4096 LRU buckets и удаляет
+неактивные buckets через 20 минут. Действуют отдельные лимиты на IP: 60 запросов
+в минуту для `/json/` и `/sub/`, 20 в минуту для admin authentication/read и 10
+в минуту для `preview`, `api-test` и `discover`. Ответ `429` содержит положительный
+`Retry-After`, `X-Request-ID` и `Cache-Control: no-store`.
+
+Forwarded-заголовки учитываются только когда непосредственный peer входит в
+`AUTOSUB_TRUSTED_PROXIES`; цепочка `X-Forwarded-For` разбирается справа налево.
+Прямой клиент не может подменить свой bucket через spoofed header. Пустой allowlist
+полностью отключает доверие forwarded headers, а невалидная или global сеть
+останавливает startup. При нескольких Uvicorn workers каждый процесс имеет свой
+limiter, поэтому суммарный предел масштабируется с числом workers. Redis не нужен
+для штатного однопроцессного deployment за локальным Nginx.
 
 ---
 

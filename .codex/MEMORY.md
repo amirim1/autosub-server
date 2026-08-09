@@ -11,6 +11,8 @@ AutoSub Server — локальный прокси JSON-подписок для 
 - `api_client.py` — HTTP/API-клиент 3x-ui без собственного response cache.
 - `subscription_cache.py` — bounded LRU/TTL-кэш готовых публичных подписок,
   per-key single-flight, stale-if-error и поколенческая инвалидация.
+- `rate_limiter.py` — bounded process-local sliding-window limiter и validated
+  trusted-proxy client-IP resolution.
 - `http_clients.py`, `http_client_config.py`, `http_client_errors.py` — lifespan-managed HTTP pools, panel-session isolation, limits and safe network errors.
 - `storage.py` — асинхронная SQLite persistence и миграции.
 - `dashboard.py`, `templates/`, `static/` — админ-интерфейс.
@@ -30,14 +32,20 @@ Python 3.10+, FastAPI, Uvicorn, httpx, aiosqlite, Jinja2, pytest, pytest-asyncio
 - HTTP clients создаются и закрываются через FastAPI lifespan: один stateless upstream pool и bounded изолированные panel sessions.
 - Кэш готовых подписок process-local: 256 записей, 30 секунд fresh, 300 секунд
   stale-if-error, максимум 256 KiB payload на запись; Redis не используется.
+- Rate limiter process-local: 4096 LRU buckets, idle TTL 20 минут; отдельные
+  public `60/min`, admin-auth `20/min` и expensive-admin `10/min` policies.
+- Forwarded headers учитываются только от immediate peer из validated
+  `AUTOSUB_TRUSTED_PROXIES`; пустое значение отключает trust, unsafe config
+  останавливает startup.
 - Рабочая ветка — `dev`, production — `main`.
 - `XUI_SUB_URL` используется для получения подписки; `XUI_API_URL` — для API панели; `XUI_URL` — fallback.
 
 ## Current State
 
-Последняя проверка 2026-08-09: `python -m pytest -q` — 258 passed, 1 strict xfailed
+Последняя проверка 2026-08-09: `python -m pytest -q` — 287 passed, 1 strict xfailed
 и 1 Starlette/httpx deprecation warning. Cache stampede устранён; единственный
-известный xfail — malformed config marker.
+известный xfail — malformed config marker. Rate limiter bounded и разделяет
+public/admin/expensive policies.
 
 ## Known Problems
 

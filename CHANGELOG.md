@@ -4,6 +4,16 @@ All notable changes to AutoSub Server will be documented in this file.
 
 ## [v2.1.0] - 2026-07-31
 
+2026-08-09: Ограничен и усилен process-local rate limiter: sliding window,
+4096 LRU buckets, idle expiry, отдельные public/admin/expensive policies,
+trusted-proxy validation, spoof-safe XFF parsing и корректные `429` с
+`Retry-After`. Redis и изменения публичных payload не требуются.
+
+2026-08-09: Bounded and hardened the process-local rate limiter with a sliding
+window, 4096 LRU buckets, idle expiry, separate public/admin/expensive policies,
+validated trusted proxies, spoof-safe XFF parsing, and `429` responses carrying
+`Retry-After`. No Redis or public-payload changes are required.
+
 2026-08-09: Добавлен ограниченный process-local LRU/TTL-кэш готовых публичных
 подписок: SHA-256 ключи, per-key single-flight, stale-if-error для временных
 upstream-сбоев, поколенческая инвалидация после admin-изменений и безопасное

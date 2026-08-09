@@ -123,6 +123,7 @@ AUTOSUB_HOST=127.0.0.1
 AUTOSUB_PORT=25500
 
 # Trusted reverse proxies (comma-separated IP/CIDR). Forwarding headers are accepted only from these peers.
+# Empty disables trust; an invalid or world-wide network stops application startup.
 AUTOSUB_TRUSTED_PROXIES=127.0.0.1/32,::1/128
 
 # Basic Auth for /admin. Replace the example password before use.
@@ -187,6 +188,22 @@ HTTP 5xx responses. Keys contain SHA-256 digests, and successful dashboard mutat
 advance the cache generation. HTML and admin preview requests bypass this cache.
 The cache is local to one Uvicorn process; Redis is unnecessary for the supported
 single-process deployment.
+
+### Rate limiting
+
+The process-local sliding-window limiter retains at most 4096 LRU buckets and
+expires idle buckets after 20 minutes. Per-IP policies allow 60 requests per minute
+for `/json/` and `/sub/`, 20 per minute for admin authentication/read, and 10 per
+minute for `preview`, `api-test`, and `discover`. A `429` response includes a
+positive `Retry-After`, `X-Request-ID`, and `Cache-Control: no-store`.
+
+Forwarding headers are considered only when the immediate peer belongs to
+`AUTOSUB_TRUSTED_PROXIES`; `X-Forwarded-For` is evaluated from right to left. A
+direct client cannot change its bucket with a spoofed header. An empty allowlist
+disables forwarding-header trust, while invalid or world-wide networks stop startup.
+Each Uvicorn worker has a separate limiter, so the aggregate limit scales with the
+worker count. Redis is unnecessary for the supported single-process deployment
+behind local Nginx.
 
 ---
 

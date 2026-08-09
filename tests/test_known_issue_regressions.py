@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 import autosub_server
 import builder
 import dashboard
+from rate_limiter import RateLimitPolicy
 
 
 class _PanelManager:
@@ -30,10 +31,8 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
     monkeypatch.setattr(autosub_server, "env_get", lambda key, default="": default)
-    autosub_server._ip_requests.clear()
     with TestClient(autosub_server.app) as test_client:
         yield test_client
-    autosub_server._ip_requests.clear()
 
 
 class _FlashMessageParser(HTMLParser):
@@ -83,8 +82,6 @@ def test_public_error_hides_details_but_traceback_is_logged(
     client, monkeypatch, caplog
 ):
     secret = "https://internal.example.test/secret-path"
-    monkeypatch.setattr(autosub_server, "_check_rate_limit", lambda ip: True)
-    monkeypatch.setattr(autosub_server, "_client_ip", lambda request: "192.0.2.4")
     monkeypatch.setattr(
         autosub_server,
         "build_for_subscription",
@@ -133,15 +130,28 @@ def test_admin_preview_hides_exception_details(client, monkeypatch, caplog, deta
 
 def test_subscription_logs_do_not_include_full_sub_id(client, monkeypatch, caplog):
     sub_id = "full-sensitive-subscription-id-123456"
-    monkeypatch.setattr(autosub_server, "_check_rate_limit", lambda ip: False)
-    monkeypatch.setattr(autosub_server, "_client_ip", lambda request: "192.0.2.8")
+    monkeypatch.setattr(
+        autosub_server,
+        "PUBLIC_RATE_LIMIT",
+        RateLimitPolicy("public-log-test", 1, 60),
+    )
+    monkeypatch.setattr(
+        autosub_server,
+        "build_for_subscription",
+        AsyncMock(return_value=("[]", "application/json", {})),
+    )
+    monkeypatch.setattr(
+        autosub_server, "resolve_security_flags", AsyncMock(return_value={})
+    )
+    assert client.get("/json/warmup").status_code == 200
     caplog.set_level(logging.WARNING, logger="autosub")
 
     response = client.get(f"/json/{sub_id}")
 
     assert response.status_code == 429
     assert sub_id not in caplog.text
-    assert "sub_id_hash=sha256:" in caplog.text
+    assert "policy=public-log-test" in caplog.text
+    assert "client_hash=sha256:" in caplog.text
 
 
 def test_subscription_logs_do_not_include_client_email(monkeypatch):

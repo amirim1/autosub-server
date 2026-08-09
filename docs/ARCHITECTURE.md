@@ -11,6 +11,8 @@ AutoSub Server — локальный FastAPI-прокси для JSON-подп�
 - `api_client.py` — HTTP access to subscriptions and 3x-ui API, authentication and TLS verification.
 - `subscription_cache.py` — bounded cache of fully built public subscriptions with
   per-key single-flight and stale-if-error.
+- `rate_limiter.py` — bounded process-local sliding-window limiter and validated
+  trusted-proxy client-IP resolution.
 - `storage.py` — async SQLite connection, schema creation, migrations and CRUD.
 - `dashboard.py` — admin view rendering, form parsing and persistence orchestration.
 - `config.py` — environment loading, application paths and defaults.
@@ -21,7 +23,8 @@ AutoSub Server — локальный FastAPI-прокси для JSON-подп�
 ## Data Flow
 
 1. Client calls `/json/{sub_id}` or `/sub/{sub_id}`.
-2. Server determines client IP using the trusted-proxy allowlist and applies in-memory rate limiting.
+2. Server determines client IP using the validated trusted-proxy allowlist and
+   applies the public rate policy before cache or upstream work.
 3. Legacy `/sub/` requests from browsers may fetch and return upstream 3x-ui HTML; subscription clients receive generated JSON.
 4. `builder.build_for_subscription()` fetches the upstream subscription through `api_client.py`.
 5. Builder resolves client groups, group rules and autoselect definitions through `storage.py`.
@@ -35,8 +38,10 @@ AutoSub Server — локальный FastAPI-прокси для JSON-подп�
 
 - Admin routes use optional HTTP Basic Auth controlled by `AUTOSUB_ADMIN_PASSWORD`.
 - Mutating admin forms require reusable, expiring HMAC-SHA256 CSRF tokens.
-- Forwarded client IP headers are accepted only from `AUTOSUB_TRUSTED_PROXIES`.
-- Subscription requests are rate-limited in memory.
+- Forwarded client IP headers are accepted only from an immediate peer in
+  `AUTOSUB_TRUSTED_PROXIES`; XFF chains are evaluated right-to-left.
+- A bounded process-local limiter separates public, admin-auth and expensive-admin
+  policies. It is not shared between Uvicorn workers and requires no Redis.
 - Upstream TLS verification is enabled by default through `XUI_TLS_VERIFY`.
 - Tokens, passwords and `.env` contents must never be committed or logged.
 - Nginx should expose `/json/` and `/sub/`; the local admin port should normally be reached through an SSH tunnel.

@@ -41,6 +41,7 @@
 
 - `builder.py` — Логика генерации подписок, автовыбор (leastPing балансировщик), обогащение `address`/`port`, нормализация `vnext`/`servers` для VLESS/VMess/Trojan.
 - `autosub_server.py` — FastAPI веб-сервер, роуты `/json/{sub_id}`, `/admin`, `/health`, ограничение частоты запросов (rate limiting).
+- `rate_limiter.py` — Bounded sliding-window limiter и trusted-proxy resolution.
 - `storage.py` — Работа с SQLite базой данных (`data.db`), хранение групп клиентов, правил и пресетов автовыбора.
 - `api_client.py` — Взаимодействие с API 3x-ui / XUI панелей.
 - `subscription_cache.py` — Ограниченный LRU/TTL-кэш готовых публичных подписок,

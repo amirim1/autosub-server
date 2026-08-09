@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -6,6 +7,7 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 import autosub_server
+from rate_limiter import ClientIpResolver, RateLimiter, RateLimitPolicy
 
 
 def _request(peer, headers=None):
@@ -37,10 +39,8 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
     monkeypatch.setattr(autosub_server, "render_api_test", AsyncMock(return_value="{}"))
-    autosub_server._ip_requests.clear()
     with TestClient(autosub_server.app) as test_client:
         yield test_client
-    autosub_server._ip_requests.clear()
 
 
 def test_csrf_uses_no_process_local_token_store():
@@ -93,54 +93,42 @@ def test_client_ip_regression_matrix(monkeypatch, peer, trusted, headers, expect
     assert autosub_server._client_ip(_request(peer, headers)) == expected
 
 
-def test_rate_limiter_uses_address_selected_from_trusted_proxy_chain(monkeypatch):
-    autosub_server._ip_requests.clear()
+def test_rate_limiter_uses_address_selected_from_trusted_proxy_chain():
+    resolver = ClientIpResolver("127.0.0.1/32,10.0.0.0/8")
+    selected_ip = resolver.resolve(
+        "127.0.0.1", "198.51.100.20, 10.0.0.4"
+    ).ip
+    limiter = RateLimiter()
+    policy = RateLimitPolicy("regression", 1, 60)
+
+    assert asyncio.run(limiter.check(selected_ip, policy)).allowed is True
+    assert selected_ip == "198.51.100.20"
+    assert asyncio.run(limiter.contains(selected_ip, policy)) is True
+
+
+def test_rate_limit_scope_and_retry_after(client, monkeypatch):
+    monkeypatch.setattr(autosub_server, "env_get", lambda key, default="": default)
     monkeypatch.setattr(
         autosub_server,
-        "env_get",
-        lambda key, default="": "127.0.0.1/32,10.0.0.0/8"
-        if key == "AUTOSUB_TRUSTED_PROXIES"
-        else default,
+        "PUBLIC_RATE_LIMIT",
+        RateLimitPolicy("scope-test", 1, 60),
     )
-    request = _request(
-        "127.0.0.1", {"X-Forwarded-For": "198.51.100.20, 10.0.0.4"}
+    monkeypatch.setattr(
+        autosub_server,
+        "build_for_subscription",
+        AsyncMock(return_value=("[]", "application/json", {})),
     )
-
-    selected_ip = autosub_server._client_ip(request)
-    assert autosub_server._check_rate_limit(selected_ip) is True
-
-    assert selected_ip == "198.51.100.20"
-    assert "198.51.100.20" in autosub_server._ip_requests
-
-
-def test_rate_limit_boundaries_independent_ips_and_cleanup(monkeypatch):
-    autosub_server._ip_requests.clear()
-    clock = {"now": 1000.0}
-    monkeypatch.setattr(autosub_server.time, "time", lambda: clock["now"])
-    monkeypatch.setattr(autosub_server, "RATE_LIMIT_MAX_REQUESTS", 2)
-    monkeypatch.setattr(autosub_server, "_last_ip_cleanup", 0)
-
-    assert autosub_server._check_rate_limit("192.0.2.1") is True
-    assert autosub_server._check_rate_limit("192.0.2.1") is True
-    assert autosub_server._check_rate_limit("192.0.2.1") is False
-    assert autosub_server._check_rate_limit("192.0.2.2") is True
-
-    clock["now"] += autosub_server.RATE_LIMIT_WINDOW + 1
-    assert autosub_server._check_rate_limit("192.0.2.1") is True
-    assert autosub_server._ip_requests["192.0.2.1"] == [clock["now"]]
-
-
-def test_rate_limit_scope_and_missing_retry_after(client, monkeypatch):
-    monkeypatch.setattr(autosub_server, "env_get", lambda key, default="": default)
-    monkeypatch.setattr(autosub_server, "RATE_LIMIT_MAX_REQUESTS", 0)
-    monkeypatch.setattr(autosub_server, "_client_ip", lambda request: "198.51.100.8")
+    monkeypatch.setattr(
+        autosub_server, "resolve_security_flags", AsyncMock(return_value={})
+    )
     monkeypatch.setattr(autosub_server, "render_api_test", AsyncMock(return_value="{}"))
 
+    assert client.get("/json/allowed").status_code == 200
     limited = client.get("/json/limited")
     health = client.get("/health")
     admin = client.get("/admin/api-test")
 
     assert limited.status_code == 429
-    assert "retry-after" not in limited.headers
+    assert int(limited.headers["retry-after"]) > 0
     assert health.status_code == 200
     assert admin.status_code == 200

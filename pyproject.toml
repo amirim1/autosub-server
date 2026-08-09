@@ -72,6 +72,7 @@ include = [
     "http_clients.py",
     "logger.py",
     "migrations.py",
+    "rate_limiter.py",
     "subscription_cache.py",
 ]
 exclude = [

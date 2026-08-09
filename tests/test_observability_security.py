@@ -33,8 +33,6 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
     monkeypatch.setattr(autosub_server, "env_get", lambda key, default="": default)
-    monkeypatch.setattr(autosub_server, "_check_rate_limit", lambda ip: True)
-    monkeypatch.setattr(autosub_server, "_client_ip", lambda request: "192.0.2.10")
     monkeypatch.setattr(
         autosub_server,
         "build_for_subscription",
@@ -43,10 +41,8 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(
         autosub_server, "resolve_security_flags", AsyncMock(return_value={})
     )
-    autosub_server._ip_requests.clear()
     with TestClient(autosub_server.app) as test_client:
         yield test_client
-    autosub_server._ip_requests.clear()
 
 
 def test_request_ids_are_server_generated_unique_and_valid(client):
