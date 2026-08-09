@@ -184,6 +184,9 @@ def test_retries_create_unique_backups_without_overwriting(
 def test_install_and_update_ship_all_database_runtime_modules():
     root = Path(__file__).parents[1]
     modules = ("database_errors.py", "database_backup.py", "database_schema.py", "migrations.py")
-    for script_name in ("install.sh", "update.sh"):
-        script = (root / script_name).read_text(encoding="utf-8")
-        assert all(f'$SRC_DIR/{module}' in script for module in modules)
+    manifest = (root / "runtime-manifest.txt").read_text(encoding="utf-8").splitlines()
+    assert all(module in manifest for module in modules)
+    installer = (root / "install.sh").read_text(encoding="utf-8")
+    updater = (root / "update.sh").read_text(encoding="utf-8")
+    assert 'bash "$TMP_DIR/checkout/update.sh"' in installer
+    assert "runtime-manifest.txt" in updater

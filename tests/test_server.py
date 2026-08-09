@@ -108,6 +108,7 @@ def test_lifespan_closes_http_client_and_storage(monkeypatch, tmp_path):
     fake_manager.close.assert_awaited_once()
     fake_storage.close.assert_awaited_once()
     assert close_order == ["cache", "http", "storage"]
+    assert autosub_server.app.state.ready is False
 
 
 @pytest.fixture
@@ -119,6 +120,15 @@ def http_client(monkeypatch, tmp_path):
     monkeypatch.setattr(autosub_server, "env_get", lambda key, default="": default)
     with TestClient(autosub_server.app) as client:
         yield client, fake_storage
+
+
+def test_readiness_reflects_completed_lifespan(http_client):
+    client, _ = http_client
+
+    response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
 
 
 def test_admin_basic_auth(http_client, monkeypatch):

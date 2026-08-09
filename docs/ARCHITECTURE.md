@@ -56,4 +56,27 @@ AutoSub Server — локальный FastAPI-прокси для JSON-подп�
 
 ## Deployment Architecture
 
-The systemd service runs `/opt/autosub-server/autosub_server.py` from a virtualenv on `127.0.0.1:25500`. Nginx terminates TLS on the public subscription port and proxies `/json/` and `/sub/` to the local service. `install.sh` installs a release, `update.sh` creates backups and updates runtime files, `setup_nginx.sh` writes the Nginx site, and `finish_setup.sh` orchestrates setup and health checks.
+Production uses one root-managed systemd/Uvicorn process on `127.0.0.1:25500`.
+There is deliberately no `autosub` Unix user. Nginx terminates TLS and proxies only
+`/json/` and `/sub/` to the local service.
+
+`/opt/autosub-server` contains `releases/<id>/`, relative symlink `current`, persistent
+`shared/`, and root-owned `update.sh`. Every complete release has immutable-ish runtime
+files plus its own `venv`; `.env`, `config.json`, `data.db` (including WAL/SHM),
+`autosub.log`, and `backups/` are shared. `runtime_paths.py` separates release assets
+from persistence while preserving local repository defaults.
+
+`release_manager.py` validates IDs and manifest paths, creates marker-protected staging,
+uses a temporary symlink plus `os.replace` for activation, creates SQLite backups via
+the backup API, polls lifecycle readiness, rolls code back, and bounds successful
+release retention. The production systemd runner is not traffic-isolated, so it never
+automatically restores the DB after a start attempt; a verified backup is retained for
+operator recovery. Only an explicitly isolated stopped pre-traffic runner may invoke
+automatic restore. `runtime-manifest.txt` is the shared install/update allowlist and
+excludes tests, docs, `.codex`, secrets, and data.
+An atomic root-only `.update-state.json` records previous/candidate/phase/backup so a
+subsequent updater restores the recorded previous release after a switch interruption;
+unknown or mismatched state fails closed.
+An atomic root-only `.update-state.json` records previous/candidate/phase/backup so a
+subsequent updater restores the recorded previous release after a switch interruption;
+unknown or mismatched state fails closed.

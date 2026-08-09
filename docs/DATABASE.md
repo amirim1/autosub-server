@@ -2,7 +2,9 @@
 
 ## Storage
 
-The application uses SQLite through `aiosqlite`. The path is controlled by `AUTOSUB_DB`; the default is under `AUTOSUB_APP_DIR` and production normally uses `/opt/autosub-server/data.db`.
+The application uses SQLite through `aiosqlite`. `AUTOSUB_DB` overrides the path;
+release-layout production uses `/opt/autosub-server/shared/data.db`, while local
+repository runs retain the repository-local default.
 
 ## Tables
 
@@ -28,3 +30,7 @@ At startup `autosub_server.py` checks `AUTOSUB_CONFIG`/legacy `config.json` and 
 - Keep migrations backward-compatible and idempotent.
 - Avoid destructive table rewrites and unbounded data deletion.
 - Verify commits and close the async connection in lifecycle tests.
+- Before code activation, the updater creates a verified `pre-update-*.db` through
+  SQLite backup API. Code rollback is automatic. DB restore is automatic only for an
+  explicitly isolated, stopped pre-traffic phase; the normal systemd runner permits
+  traffic after startup and therefore retains the backup for manual recovery instead.

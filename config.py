@@ -1,22 +1,24 @@
 import os
 from pathlib import Path
 from logger import logger
+from runtime_paths import get_autosub_root, get_release_dir, get_shared_dir
 
 
 VERSION = "2.1.0"
 
-DEFAULT_APP_DIR = Path("/opt/autosub-server")
-if not DEFAULT_APP_DIR.exists():
-    DEFAULT_APP_DIR = Path(__file__).parent.resolve()
-
-APP_DIR = Path(os.environ.get("AUTOSUB_APP_DIR", str(DEFAULT_APP_DIR)))
-CONFIG_PATH = Path(os.environ.get("AUTOSUB_CONFIG", str(APP_DIR / "config.json")))
-DB_PATH = Path(os.environ.get("AUTOSUB_DB", str(APP_DIR / "data.db")))
+AUTOSUB_ROOT = get_autosub_root()
+APP_DIR = get_release_dir()
+SHARED_DIR = get_shared_dir()
+CONFIG_PATH = Path(os.environ.get("AUTOSUB_CONFIG", str(SHARED_DIR / "config.json")))
+DB_PATH = Path(os.environ.get("AUTOSUB_DB", str(SHARED_DIR / "data.db")))
 ENV_PATHS = [
-    Path(os.environ.get("AUTOSUB_ENV", str(APP_DIR / ".env"))),
+    Path(os.environ.get("AUTOSUB_ENV", str(SHARED_DIR / ".env"))),
     Path(".env"),
 ]
-LOG_PATH = Path(os.environ.get("AUTOSUB_LOG", str(APP_DIR / "autosub.log")))
+LOG_PATH = Path(os.environ.get("AUTOSUB_LOG", str(SHARED_DIR / "autosub.log")))
+BACKUP_DIR = Path(
+    os.environ.get("AUTOSUB_BACKUP_DIR", str(SHARED_DIR / "backups"))
+)
 
 DEFAULT_CONFIG = {
     "dashboard_enabled": True,
@@ -48,7 +50,7 @@ DEFAULT_CONFIG = {
 
 
 def ensure_app_dir():
-    APP_DIR.mkdir(parents=True, exist_ok=True)
+    SHARED_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def load_dotenv():

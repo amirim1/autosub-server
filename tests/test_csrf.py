@@ -181,9 +181,11 @@ def test_backup_and_installer_paths_are_safe():
         for path in (root / "update.sh", root / "README.md", root / "README_EN.md")
     )
     installer = (root / "install.sh").read_text(encoding="utf-8")
+    updater = (root / "update.sh").read_text(encoding="utf-8")
 
     assert forbidden_backup_path not in sources
     assert "/opt/autosub-server/shared/backups/" in sources
-    assert "secrets.token_urlsafe(48)" in installer
-    assert 'if [ ! -f "$APP_DIR/.env" ]' in installer
+    assert 'bash "$TMP_DIR/checkout/update.sh"' in installer
+    assert "secrets.token_urlsafe(48)" in updater
+    assert 'if [ ! -f "$APP_DIR/shared/.env" ]' in updater
     assert "AUTOSUB_SECRET_KEY" in (root / ".env.example").read_text(encoding="utf-8")

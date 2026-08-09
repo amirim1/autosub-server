@@ -18,7 +18,8 @@ AutoSub Server — локальный прокси JSON-подписок для 
 - `http_clients.py`, `http_client_config.py`, `http_client_errors.py` — lifespan-managed HTTP pools, panel-session isolation, limits and safe network errors.
 - `storage.py` — асинхронная SQLite persistence и миграции.
 - `dashboard.py`, `templates/`, `static/` — админ-интерфейс.
-- `config.py` — пути приложения, `.env` loading и runtime defaults.
+- `config.py`, `runtime_paths.py` — release/shared paths, `.env` loading и defaults.
+- `release_manager.py`, `runtime-manifest.txt` — atomic deployment и runtime allowlist.
 - `fingerprint.py` — стабильные идентификаторы и теги нод.
 - `logger.py` — файловое логирование.
 
@@ -47,8 +48,8 @@ Python 3.10+, FastAPI, Uvicorn, httpx, aiosqlite, Jinja2, pytest, pytest-asyncio
 
 ## Current State
 
-Последняя проверка 2026-08-09: `python -m pytest -q` — 314 passed, 1 strict xfailed
-и 1 Starlette/httpx deprecation warning. Cache stampede устранён; единственный
+Baseline PR №11 до deployment-изменений: `python -m pytest -q` — 314 passed,
+1 strict xfailed и 1 Starlette/httpx deprecation warning. Единственный
 известный xfail — malformed config marker. Rate limiter bounded и разделяет
 public/admin/expensive policies; browser `/sub/` использует только local HTML.
 
@@ -65,9 +66,23 @@ public/admin/expensive policies; browser `/sub/` использует тольк
 
 ## Deployment Notes
 
-Установка и обновление: `install.sh` и `update.sh`; сервис: `autosub-server.service`; reverse proxy: `nginx-example.conf` и `setup_nginx.sh`.
+Production layout: `/opt/autosub-server/current -> releases/<id>`, per-release venv и
+persistent `/opt/autosub-server/shared`. Updater root-owned, использует `flock`,
+marker-based staging, SQLite backup, atomic symlink, local readiness, code rollback и
+retention трёх release. Атомарный `.update-state.json` сохраняет rollback target для
+recovery после interruption. Сервис root-managed без Unix user `autosub`.
 
-Основные deployment-команды: `bash install.sh`, `bash update.sh`, `bash setup_nginx.sh <domain> <port> [upstream]`; проверка Nginx — `nginx -t`, health — `curl http://127.0.0.1:25500/health`.
+Systemd activation не изолирована от Nginx/write traffic. Поэтому после попытки start
+БД автоматически не восстанавливается; verified pre-update backup сохраняется для
+manual fail-closed recovery. Auto-restore разрешён только для доказанной остановленной
+pre-traffic фазы.
+
+Установка и обновление: `install.sh` и root `/opt/autosub-server/update.sh`; сервис:
+`autosub-server.service`; reverse proxy: `current/setup_nginx.sh`.
+
+Основные deployment-команды: `bash install.sh`, `/opt/autosub-server/update.sh`,
+`current/setup_nginx.sh <domain> <port> [upstream]`; readiness —
+`curl http://127.0.0.1:25500/health/ready`.
 
 ## Persistence Schema
 

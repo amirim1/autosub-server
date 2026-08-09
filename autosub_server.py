@@ -11,7 +11,16 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import uvicorn
 
-from config import APP_DIR, CONFIG_PATH, DB_PATH, ensure_app_dir, env_get, load_config, VERSION
+from config import (
+    APP_DIR,
+    BACKUP_DIR,
+    CONFIG_PATH,
+    DB_PATH,
+    VERSION,
+    ensure_app_dir,
+    env_get,
+    load_config,
+)
 from logger import logger
 from logging_utils import fingerprint_secret
 from http_security import RequestContextMiddleware, json_error, plain_error
@@ -37,7 +46,7 @@ from dashboard import (
     save_admin_form,
 )
 
-storage = Storage(DB_PATH)
+storage = Storage(DB_PATH, backup_dir=BACKUP_DIR)
 
 security = HTTPBasic(auto_error=False)
 
@@ -186,6 +195,7 @@ async def _invalidate_subscription_cache(request):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    app.state.ready = False
     admin_host = str(env_get("AUTOSUB_HOST", "127.0.0.1") or "")
     admin_password = str(env_get("AUTOSUB_ADMIN_PASSWORD", "") or "")
     validate_admin_security_config(admin_host, admin_password)
@@ -220,6 +230,7 @@ async def lifespan(app: FastAPI):
                 logger.info("config.json migrated to SQLite")
         else:
             logger.warning(f"config.json not found at {CONFIG_PATH}, starting fresh")
+        app.state.ready = True
         logger.info(f"AutoSub Server v{VERSION} started")
         logger.info(f"DB: {DB_PATH}")
         if admin_password.strip():
@@ -228,6 +239,7 @@ async def lifespan(app: FastAPI):
             logger.warning("Admin dashboard: passwordless access enabled on loopback bind")
         yield
     finally:
+        app.state.ready = False
         try:
             await subscription_cache.close()
         finally:
@@ -239,6 +251,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.state.ready = False
 app.add_middleware(RequestContextMiddleware)
 
 
@@ -269,6 +282,13 @@ async def root_redirect():
 @app.get("/health")
 async def health():
     return PlainTextResponse(f"AutoSub Server v{VERSION} OK")
+
+
+@app.get("/health/ready")
+async def readiness(request: Request):
+    if request.app.state.ready:
+        return JSONResponse({"status": "ready"})
+    return JSONResponse({"status": "not_ready"}, status_code=503)
 
 
 @app.get("/sub/_assets/subscription.css", include_in_schema=False)

@@ -4,6 +4,18 @@ All notable changes to AutoSub Server will be documented in this file.
 
 ## [v2.1.0] - 2026-07-31
 
+2026-08-09: Deployment переведён на root-managed release layout
+`releases/current/shared`: per-release venv, единый runtime manifest, безопасная
+legacy migration, SQLite pre-update backup, atomic symlink activation, local readiness,
+code rollback, updater `flock` и bounded retention. DB restore после обычного systemd
+start остаётся manual, поскольку write traffic нельзя доказанно исключить.
+
+2026-08-09: Moved deployment to a root-managed `releases/current/shared` layout with
+per-release venvs, one runtime manifest, safe legacy migration, pre-update SQLite
+backup, atomic symlink activation, local readiness, code rollback, updater `flock`,
+and bounded retention. DB restore remains manual after normal systemd startup because
+write traffic cannot be proven absent.
+
 2026-08-09: Upstream HTML для legacy `/sub/` заменён локальной autoescaped
 страницей AutoSub со строгой CSP и `no-store`. Добавлены детерминированные
 `format=json|html`, weighted Accept negotiation и безопасные local error pages;

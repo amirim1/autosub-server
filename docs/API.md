@@ -10,6 +10,13 @@ Redirects to `/admin` with HTTP 307.
 
 Returns plain text such as `AutoSub Server v<version> OK`.
 
+### `GET /health/ready`
+
+Returns `200 {"status":"ready"}` only after FastAPI startup has opened/migrated
+SQLite and initialized the HTTP manager, subscription cache, rate limiter, proxy
+resolver, and CSRF manager. Before or after lifespan it returns
+`503 {"status":"not_ready"}`. It does not contact 3x-ui or expose internal paths.
+
 ### `GET /json/{sub_id}`
 
 Fetches the original 3x-ui subscription and returns generated JSON. `sub_id` is the subscription/client identifier. This endpoint remains JSON even when `Accept: text/html` or a browser User-Agent is supplied. Query parameters are passed to the builder/upstream path as supported by the existing implementation. Responses may include subscription metadata headers. Rate-limit failures return HTTP 429 with a JSON error body and `Retry-After`; unexpected failures return HTTP 500.

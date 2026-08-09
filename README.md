@@ -97,8 +97,8 @@ curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/dev/install.
 
 2. **Клонирование репозитория:**
    ```bash
-   git clone https://github.com/amirim1/autosub-server.git /opt/autosub-server
-   cd /opt/autosub-server
+   git clone https://github.com/amirim1/autosub-server.git /tmp/autosub-server-src
+   cd /tmp/autosub-server-src
    ```
 
 3. **Запуск скрипта установки:**
@@ -116,7 +116,7 @@ curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/dev/install.
 ### Шаг 1: Подключение к 3x-ui (.env)
 Откройте файл конфигурации:
 ```bash
-nano /opt/autosub-server/.env
+nano /opt/autosub-server/shared/.env
 ```
 Укажите данные для подключения к вашей панели 3x-ui (потребуется `XUI_SUB_URL`, `XUI_API_URL` и либо логин/пароль, либо `XUI_API_TOKEN`). Для админ-панели задайте `AUTOSUB_ADMIN_USERNAME` и надежный `AUTOSUB_ADMIN_PASSWORD`. После обновления сохраненный в браузере username должен совпадать с настроенным значением (по умолчанию `admin`).
 После сохранения перезапустите сервис:
@@ -128,7 +128,7 @@ systemctl restart autosub-server
 AutoSub работает локально на порту `25500`. Чтобы ваши клиенты могли скачивать подписки, нужно настроить Nginx.
 Запустите скрипт автонастройки (замените домен и порт на ваши):
 ```bash
-bash /opt/autosub-server/setup_nginx.sh sub.your-domain.com 2097
+bash /opt/autosub-server/current/setup_nginx.sh sub.your-domain.com 2097
 ```
 *(Либо настройте Nginx вручную, пример конфигурации лежит в `nginx-example.conf`)*
 
@@ -150,7 +150,7 @@ bash /opt/autosub-server/setup_nginx.sh sub.your-domain.com 2097
 
 ## ⚙️ Конфигурация (.env)
 
-Файл параметров расположен по адресу `/opt/autosub-server/.env`:
+Файл параметров расположен по адресу `/opt/autosub-server/shared/.env`:
 
 ```env
 AUTOSUB_HOST=127.0.0.1
@@ -268,7 +268,7 @@ limiter, поэтому суммарный предел масштабирует
 python3 -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-Сохраните его в `/opt/autosub-server/.env`. Без ключа допустим только
+Сохраните его в `/opt/autosub-server/shared/.env`. Без ключа допустим только
 временный process-secret на loopback bind; non-loopback startup требует
 ключ длиной не менее 32 символов.
 
@@ -288,8 +288,12 @@ ssh -L 25500:127.0.0.1:25500 root@YOUR_SERVER_IP
 необратимые fingerprints, а email маскируются. Ответы также получают базовые security
 headers; административные страницы используют `Cache-Control: no-store`.
 
-Все управляемые AutoSub файлы должны оставаться внутри `/opt/autosub-server`: код,
-`.env`, SQLite, лог, venv и резервные копии.
+Все управляемые AutoSub файлы находятся внутри `/opt/autosub-server`. Код и отдельный
+`venv` каждой версии живут в `releases/<id>/`, атомарная относительная ссылка
+`current` выбирает активную версию, а `.env`, SQLite, config, лог и резервные копии
+живут в `shared/`. Systemd управляется root и запускает сервис без отдельного Unix
+пользователя; файлы и updater должны оставаться root-owned и недоступными для записи
+непривилегированным пользователям.
 
 ### Миграции SQLite и резервные копии
 
@@ -298,9 +302,12 @@ headers; административные страницы используют 
 или уже актуальной базы копия не создаётся. Ошибка проверки целостности, создания
 backup или миграции останавливает startup; изменение схемы и её версии откатывается.
 
-Восстановление выполняется оператором вручную из проверенной копии. Не удаляйте её
-до проверки новой версии. Автоматической retention-политики пока нет, поэтому размер
-каталога backups необходимо контролировать.
+Updater также создаёт `pre-update-*.db` до атомарного switch. Обычный systemd restart
+может открыть публичный порт до того, как updater увидит readiness, поэтому при failed
+activation код автоматически откатывается, а БД автоматически не восстанавливается:
+это могло бы стереть уже принятые записи. Путь backup выводится оператору для
+fail-closed/manual recovery. Автоматический restore helper разрешён только для явно
+изолированной pre-traffic фазы при остановленном сервисе.
 
 ### Приоритет назначения групп клиентам:
 
@@ -315,12 +322,12 @@ backup или миграции останавливает startup; измене�
 ### Автоматическая настройка
 
 ```bash
-bash /opt/autosub-server/setup_nginx.sh sub.your-domain.com 2097
+bash /opt/autosub-server/current/setup_nginx.sh sub.your-domain.com 2097
 ```
 
 ### Ручная настройка
 
-Скопируйте пример конфигурационного файла `/opt/autosub-server/nginx-example.conf`:
+Скопируйте пример из `/opt/autosub-server/current/nginx-example.conf`:
 
 ```nginx
 server {
@@ -374,8 +381,21 @@ systemctl reload nginx
 curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/update.sh | bash
 ```
 
-Updater хранит свой текущий backup-набор внутри
-`/opt/autosub-server/shared/backups/`.
+Updater берёт неблокирующий `flock` на `/opt/autosub-server/.update.lock`, готовит
+`releases/.staging-<id>-*` и release-local `venv`, проверяет imports/assets, создаёт
+SQLite backup, затем атомарно переключает `current` и опрашивает
+`http://127.0.0.1:25500/health/ready` до 45 секунд. При ошибке он возвращает код на
+предыдущий release и проверяет `/health`. После успеха сохраняются три последних
+release, при этом current и непосредственная rollback-цель защищены. Backups живут в
+`/opt/autosub-server/shared/backups/` и не участвуют в release retention.
+Атомарный `.update-state.json` сохраняет настоящую rollback-цель: следующий запуск
+завершит прерванный rollback, даже если interruption произошёл сразу после switch.
+
+Legacy flat install мигрируется один раз без раннего удаления исходных файлов:
+`.env`, `config.json`, log и консистентная SQLite-копия переходят в `shared`, а
+предыдущий код получает отдельный rollback release/venv. Загрузка выполняется exact
+Git ref через HTTPS без fallback на другую ветку. Отдельные подписанные checksum
+metadata проект пока не публикует; это остаётся ограничением authenticity.
 
 ---
 

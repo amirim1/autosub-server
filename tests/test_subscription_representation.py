@@ -314,18 +314,20 @@ def test_all_sub_formats_share_public_rate_limit(client, monkeypatch):
 
 def test_runtime_assets_are_present_and_packaged():
     root = Path(__file__).parents[1]
-    for relative in (
+    runtime_assets = (
         "subscription_representation.py",
         "templates/subscription.html",
         "static/subscription.css",
-    ):
+    )
+    for relative in runtime_assets:
         assert (root / relative).is_file()
 
-    for script_name in ("install.sh", "update.sh"):
-        script = (root / script_name).read_text(encoding="utf-8")
-        assert 'install_file "$SRC_DIR/subscription_representation.py"' in script
-        assert 'cp -r "$SRC_DIR/static/"*' in script
-        assert 'cp -r "$SRC_DIR/templates/"*' in script
+    manifest = (root / "runtime-manifest.txt").read_text(encoding="utf-8").splitlines()
+    assert all(relative in manifest for relative in runtime_assets)
+    installer = (root / "install.sh").read_text(encoding="utf-8")
+    updater = (root / "update.sh").read_text(encoding="utf-8")
+    assert 'bash "$TMP_DIR/checkout/update.sh"' in installer
+    assert "runtime-manifest.txt" in updater
 
     production_source = "\n".join(
         (root / name).read_text(encoding="utf-8")

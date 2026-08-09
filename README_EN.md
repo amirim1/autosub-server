@@ -88,8 +88,8 @@ Requires a server running Ubuntu/Debian.
 
 2. **Clone the repository:**
    ```bash
-   git clone https://github.com/amirim1/autosub-server.git /opt/autosub-server
-   cd /opt/autosub-server
+   git clone https://github.com/amirim1/autosub-server.git /tmp/autosub-server-src
+   cd /tmp/autosub-server-src
    ```
 
 3. **Run the installation script:**
@@ -104,7 +104,7 @@ Requires a server running Ubuntu/Debian.
 
 1. Configure your 3x-ui credentials or API token in the environment file:
    ```bash
-   nano /opt/autosub-server/.env
+   nano /opt/autosub-server/shared/.env
    systemctl restart autosub-server
    ```
    Configure `AUTOSUB_ADMIN_USERNAME` and a strong `AUTOSUB_ADMIN_PASSWORD` as well. After upgrading, saved browser credentials must use the configured username (`admin` by default).
@@ -118,7 +118,7 @@ Requires a server running Ubuntu/Debian.
 
 ## ⚙️ Configuration (.env)
 
-The environment configuration is located at `/opt/autosub-server/.env`:
+The environment configuration is located at `/opt/autosub-server/shared/.env`:
 
 ```env
 AUTOSUB_HOST=127.0.0.1
@@ -237,7 +237,7 @@ generate it with:
 python3 -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-Store it in `/opt/autosub-server/.env`. Without a key, only a temporary process
+Store it in `/opt/autosub-server/shared/.env`. Without a key, only a temporary process
 secret on a loopback bind is allowed. A non-loopback startup requires a key of at
 least 32 characters.
 
@@ -257,8 +257,11 @@ exposing internal details. Subscription IDs are logged only as irreversible
 fingerprints, and email addresses are masked. Responses also receive baseline security
 headers; administrative pages use `Cache-Control: no-store`.
 
-All AutoSub-managed files must remain under `/opt/autosub-server`: code, `.env`,
-SQLite, logs, the venv, and backups.
+All AutoSub-managed files remain under `/opt/autosub-server`. Immutable runtime code
+and a per-release `venv` live under `releases/<id>/`; the atomic relative `current`
+symlink selects one release. `.env`, SQLite, legacy config, logs, and backups live
+under `shared/`. Systemd is root-managed without a dedicated Unix service account;
+the tree and updater must remain root-owned and not writable by unprivileged users.
 
 ### SQLite migrations and backups
 
@@ -267,9 +270,12 @@ the SQLite backup API under `/opt/autosub-server/shared/backups/`. A new or alre
 current database does not create a backup. An integrity, backup, or migration failure
 stops startup and rolls back both schema changes and the schema version.
 
-Restore is a manual operator action from a verified backup. Keep the backup until the
-new version has been validated. Backups have no automatic retention policy yet, so
-monitor the directory size.
+The updater also creates `pre-update-*.db` before switching code. A normal systemd
+restart can expose the local server before the updater observes readiness, so failed
+activation automatically rolls code back but does not automatically restore SQLite:
+doing so could erase accepted writes. The verified backup path is retained for a
+fail-closed/manual recovery. The restore helper accepts only an explicitly isolated,
+stopped, pre-traffic phase.
 
 ### Client Group Resolution Priority:
 
@@ -284,12 +290,12 @@ monitor the directory size.
 ### Automatic Setup
 
 ```bash
-bash /opt/autosub-server/setup_nginx.sh sub.your-domain.com 2097
+bash /opt/autosub-server/current/setup_nginx.sh sub.your-domain.com 2097
 ```
 
 ### Manual Setup
 
-Copy example configuration `/opt/autosub-server/nginx-example.conf`:
+Copy `/opt/autosub-server/current/nginx-example.conf`:
 
 ```nginx
 server {
@@ -343,8 +349,21 @@ systemctl reload nginx
 curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/update.sh | bash
 ```
 
-The updater stores its current backup set under
-`/opt/autosub-server/shared/backups/`.
+The updater takes a non-blocking `flock` on `/opt/autosub-server/.update.lock`, builds
+`releases/.staging-<id>-*` with a per-release venv, validates imports/assets, creates
+the SQLite backup, atomically switches `current`, and polls local `/health/ready` for
+up to 45 seconds. Failure switches code back and verifies old `/health`. Successful
+cleanup keeps three recent releases and always protects current and its immediate
+rollback target. Database backups remain under `shared/backups/` and have separate
+retention.
+An atomic `.update-state.json` records the real rollback target, allowing the next run
+to recover an interruption even if it happened immediately after the symlink switch.
+
+A legacy flat install is converted once without deleting its original files early.
+Persistent files move to `shared`, and old code receives a release-local rollback
+venv. Source acquisition uses an exact Git ref over HTTPS and never falls back to a
+different branch. The project does not yet publish separate signed checksum metadata,
+which remains an authenticity limitation.
 
 ---
 

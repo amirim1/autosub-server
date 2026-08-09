@@ -1,139 +1,63 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
-APP_DIR=/opt/autosub-server
-SRC_DIR="$(cd "$(dirname "${BASH_SOURCE:-$0}")" 2>/dev/null && pwd || echo "")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
+APP_DIR="${AUTOSUB_ROOT:-/opt/autosub-server}"
+TMP_DIR=""
 
-if [ -z "$SRC_DIR" ] || [ ! -f "$SRC_DIR/autosub_server.py" ]; then
-  TMP_DIR="$(mktemp -d)"
-  TARGET_VER="${AUTOSUB_VERSION:-latest}"
-  if [ "$TARGET_VER" = "latest" ]; then
-    LATEST_TAG=$(curl -fsSL https://api.github.com/repos/amirim1/autosub-server/releases/latest 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
-    if [ -n "$LATEST_TAG" ]; then
-      TARGET_VER="$LATEST_TAG"
-    else
-      TARGET_VER="main"
-    fi
-  fi
-  echo -e "⏳ Fetching AutoSub Server version: \033[1;36m$TARGET_VER\033[0m from GitHub..."
-  if command -v git &>/dev/null; then
-    git clone -q --depth 1 --branch "$TARGET_VER" https://github.com/amirim1/autosub-server.git "$TMP_DIR" 2>/dev/null || git clone -q --depth 1 https://github.com/amirim1/autosub-server.git "$TMP_DIR" 2>/dev/null
-  else
-    curl -fsSL "https://github.com/amirim1/autosub-server/archive/refs/tags/${TARGET_VER}.tar.gz?t=$(date +%s)" 2>/dev/null | tar -xz -C "$TMP_DIR" --strip-components=1 2>/dev/null || \
-    curl -fsSL "https://github.com/amirim1/autosub-server/archive/refs/heads/${TARGET_VER}.tar.gz?t=$(date +%s)" | tar -xz -C "$TMP_DIR" --strip-components=1
-  fi
-  SRC_DIR="$TMP_DIR"
-fi
-
-mkdir -p "$APP_DIR"
-
-install_file() {
-  local src="$1"
-  local dst="$2"
-  if [ "$(readlink -f "$src")" != "$(readlink -f "$dst" 2>/dev/null || true)" ]; then
-    cp "$src" "$dst"
+cleanup() {
+  if [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ]; then
+    case "$TMP_DIR" in
+      "$APP_DIR"/releases/.source-*) rm -rf -- "$TMP_DIR" ;;
+      *) echo "Refusing to remove unexpected temporary path" >&2 ;;
+    esac
   fi
 }
+trap cleanup EXIT
 
-install_file "$SRC_DIR/autosub_server.py" "$APP_DIR/autosub_server.py"
-install_file "$SRC_DIR/config.py" "$APP_DIR/config.py"
-install_file "$SRC_DIR/storage.py" "$APP_DIR/storage.py"
-install_file "$SRC_DIR/fingerprint.py" "$APP_DIR/fingerprint.py"
-install_file "$SRC_DIR/api_client.py" "$APP_DIR/api_client.py"
-install_file "$SRC_DIR/subscription_cache.py" "$APP_DIR/subscription_cache.py"
-install_file "$SRC_DIR/rate_limiter.py" "$APP_DIR/rate_limiter.py"
-install_file "$SRC_DIR/subscription_representation.py" "$APP_DIR/subscription_representation.py"
-install_file "$SRC_DIR/http_client_config.py" "$APP_DIR/http_client_config.py"
-install_file "$SRC_DIR/http_client_errors.py" "$APP_DIR/http_client_errors.py"
-install_file "$SRC_DIR/http_clients.py" "$APP_DIR/http_clients.py"
-install_file "$SRC_DIR/builder.py" "$APP_DIR/builder.py"
-install_file "$SRC_DIR/dashboard.py" "$APP_DIR/dashboard.py"
-install_file "$SRC_DIR/logger.py" "$APP_DIR/logger.py"
-install_file "$SRC_DIR/logging_utils.py" "$APP_DIR/logging_utils.py"
-install_file "$SRC_DIR/http_security.py" "$APP_DIR/http_security.py"
-install_file "$SRC_DIR/csrf.py" "$APP_DIR/csrf.py"
-install_file "$SRC_DIR/database_errors.py" "$APP_DIR/database_errors.py"
-install_file "$SRC_DIR/database_backup.py" "$APP_DIR/database_backup.py"
-install_file "$SRC_DIR/database_schema.py" "$APP_DIR/database_schema.py"
-install_file "$SRC_DIR/migrations.py" "$APP_DIR/migrations.py"
-install_file "$SRC_DIR/nginx-example.conf" "$APP_DIR/nginx-example.conf"
-install_file "$SRC_DIR/README.md" "$APP_DIR/README.md"
-install_file "$SRC_DIR/setup_nginx.sh" "$APP_DIR/setup_nginx.sh"
-install_file "$SRC_DIR/finish_setup.sh" "$APP_DIR/finish_setup.sh"
-install_file "$SRC_DIR/requirements.txt" "$APP_DIR/requirements.txt"
+if [ -f "$SCRIPT_DIR/update.sh" ] && [ -f "$SCRIPT_DIR/autosub_server.py" ]; then
+  AUTOSUB_SOURCE_DIR="$SCRIPT_DIR" bash "$SCRIPT_DIR/update.sh"
+  exit $?
+fi
 
-# Install python dependencies
-echo -e "📦 Setting up Python virtual environment..."
-if [ ! -d "$APP_DIR/venv" ]; then
-  if ! python3 -c "import venv" &>/dev/null; then
-    echo "Installing python3-venv package..."
-    if apt-get update -y; then
-      apt-get install -y python3-venv || true
-    fi
+for command in git curl; do
+  command -v "$command" >/dev/null 2>&1 || {
+    echo "Required command not found: $command" >&2
+    exit 1
+  }
+done
+
+TARGET_VER="${AUTOSUB_VERSION:-latest}"
+if [ "$TARGET_VER" = "latest" ]; then
+  if ! TARGET_VER="$(
+    curl --fail --location --silent --show-error \
+      https://api.github.com/repos/amirim1/autosub-server/releases/latest \
+      | sed -nE 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' \
+      | head -n 1
+  )"; then
+    echo "Could not resolve the latest AutoSub release tag" >&2
+    exit 1
   fi
-  python3 -m venv "$APP_DIR/venv"
+  if [ -z "$TARGET_VER" ]; then
+    echo "Latest AutoSub release metadata has no tag" >&2
+    exit 1
+  fi
 fi
-"$APP_DIR/venv/bin/pip" install -q --require-hashes -r "$APP_DIR/requirements.txt"
-
-# Copy static assets and templates
-mkdir -p "$APP_DIR/static" "$APP_DIR/templates"
-if [ -d "$SRC_DIR/static" ]; then
-  cp -r "$SRC_DIR/static/"* "$APP_DIR/static/" 2>/dev/null || true
-fi
-if [ -d "$SRC_DIR/templates" ]; then
-  cp -r "$SRC_DIR/templates/"* "$APP_DIR/templates/" 2>/dev/null || true
+if [[ ! "$TARGET_VER" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
+  echo "Unsafe AutoSub version/ref" >&2
+  exit 1
 fi
 
-if [ ! -f "$APP_DIR/.env" ]; then
-  cp "$SRC_DIR/.env.example" "$APP_DIR/.env"
-  python3 - "$APP_DIR/.env" <<'PY'
-import secrets
-import sys
-from pathlib import Path
+install -d -m 700 "$APP_DIR" "$APP_DIR/releases"
+TMP_DIR="$(mktemp -d "$APP_DIR/releases/.source-XXXXXXXX")"
+: >"$TMP_DIR/.autosub-source"
+git clone --quiet --depth 1 --branch "$TARGET_VER" \
+  https://github.com/amirim1/autosub-server.git "$TMP_DIR/checkout" \
+  || {
+    echo "Could not fetch the exact requested AutoSub ref" >&2
+    exit 1
+  }
 
-path = Path(sys.argv[1])
-secret = secrets.token_urlsafe(48)
-lines = path.read_text(encoding="utf-8").splitlines()
-updated = [
-    f"AUTOSUB_SECRET_KEY={secret}" if line.startswith("AUTOSUB_SECRET_KEY=") else line
-    for line in lines
-]
-path.write_text("\n".join(updated) + "\n", encoding="utf-8")
-PY
-fi
-
-if [ ! -f "$APP_DIR/config.json" ]; then
-  cp "$SRC_DIR/config.example.json" "$APP_DIR/config.json"
-fi
-
-python3 - <<'PY'
-import json
-from pathlib import Path
-p = Path("/opt/autosub-server/config.json")
-data = json.loads(p.read_text(encoding="utf-8"))
-changed = False
-for item in data.get("autoselects", []):
-    if item.get("id") == "all" and not item.get("selected_node_ids"):
-        item["selected_node_ids"] = ["*"]
-        changed = True
-if changed:
-    p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-PY
-
-cp "$SRC_DIR/autosub-server.service" /etc/systemd/system/autosub-server.service
-chmod 600 "$APP_DIR/.env"
-chmod +x "$APP_DIR/setup_nginx.sh"
-chmod +x "$APP_DIR/finish_setup.sh"
-grep -q '^XUI_SUB_URL=' "$APP_DIR/.env" || echo 'XUI_SUB_URL=https://YOUR_DOMAIN:2096' >> "$APP_DIR/.env"
-grep -q '^XUI_API_URL=' "$APP_DIR/.env" || echo 'XUI_API_URL=https://YOUR_DOMAIN:PANEL_PORT' >> "$APP_DIR/.env"
-grep -q '^XUI_API_TOKEN=' "$APP_DIR/.env" || echo 'XUI_API_TOKEN=' >> "$APP_DIR/.env"
-grep -q '^AUTOSUB_ADMIN_PASSWORD=' "$APP_DIR/.env" || echo 'AUTOSUB_ADMIN_PASSWORD=' >> "$APP_DIR/.env"
-systemctl daemon-reload
-systemctl enable autosub-server
-systemctl restart autosub-server
-
-echo -e "✅ \033[1;32mInstalled AutoSub successfully!\033[0m"
-echo "Edit secrets: nano $APP_DIR/.env"
-echo "Restart: systemctl restart autosub-server"
-echo "Dashboard tunnel: ssh -L 25500:127.0.0.1:25500 root@SERVER"
-echo "Dashboard URL: http://127.0.0.1:25500/admin"
+AUTOSUB_SOURCE_DIR="$TMP_DIR/checkout" AUTOSUB_VERSION="$TARGET_VER" \
+  bash "$TMP_DIR/checkout/update.sh"

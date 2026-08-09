@@ -26,6 +26,7 @@ The default local bind is `127.0.0.1:25500`. Health check:
 
 ```bash
 curl http://127.0.0.1:25500/health
+curl http://127.0.0.1:25500/health/ready
 ```
 
 ## Testing and Static Checks
@@ -59,8 +60,8 @@ template autoescape, CSP, cache behavior, and malicious upstream HTML.
 
 ## Deployment Commands
 
-- `bash install.sh` — install release files, virtualenv, service and defaults.
-- `bash update.sh` — back up runtime files/configuration and update the service.
+- `bash install.sh` — install `releases/current/shared`, a per-release venv, and service.
+- `bash update.sh` — stage/validate a release, back up SQLite, switch, check, rollback.
 - `bash setup_nginx.sh <domain> <port> [upstream]` — create the Nginx reverse proxy.
 - `bash finish_setup.sh` — install/update, configure Nginx and show health/service status.
 - `nginx -t` — validate Nginx configuration.
@@ -70,6 +71,10 @@ template autoescape, CSP, cache behavior, and malicious upstream HTML.
 
 - Service: `systemctl status autosub-server`; logs: `journalctl -u autosub-server -f`.
 - Health: `curl http://127.0.0.1:25500/health`.
+- Readiness: `curl http://127.0.0.1:25500/health/ready`.
+- Configuration: `/opt/autosub-server/shared/.env`; active code: `current/`.
+- The root-managed service has no dedicated AutoSub Unix identity.
+- Deployment tests use temporary roots and fake runners; never point them at `/opt`.
 - Public proxy: `curl -k https://<domain>:<port>/json/<sub_id>`.
 - Confirm `XUI_SUB_URL` and `XUI_API_URL` are distinct and valid.
 - Confirm `AUTOSUB_ADMIN_PASSWORD` and `AUTOSUB_TRUSTED_PROXIES` are set appropriately.

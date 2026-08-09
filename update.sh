@@ -1,136 +1,258 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
-APP_DIR=/opt/autosub-server
-SRC_DIR="$(cd "$(dirname "${BASH_SOURCE:-$0}")" 2>/dev/null && pwd || echo "")"
+APP_DIR="${AUTOSUB_ROOT:-/opt/autosub-server}"
+SERVICE_NAME="${AUTOSUB_SERVICE_NAME:-autosub-server}"
+SERVICE_UNIT="${AUTOSUB_SERVICE_UNIT:-/etc/systemd/system/autosub-server.service}"
+PYTHON="${AUTOSUB_DEPLOY_PYTHON:-python3}"
+HEALTH_PORT="${AUTOSUB_PORT:-}"
+HEALTH_TIMEOUT="${AUTOSUB_HEALTH_TIMEOUT:-45}"
+KEEP_RELEASES="${AUTOSUB_KEEP_RELEASES:-3}"
+MIN_FREE_KB="${AUTOSUB_MIN_FREE_KB:-524288}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
+TMP_DIR=""
 
-if [ -z "$SRC_DIR" ] || [ ! -f "$SRC_DIR/autosub_server.py" ]; then
-  TMP_DIR="$(mktemp -d)"
-  TARGET_VER="${AUTOSUB_VERSION:-latest}"
-  if [ "$TARGET_VER" = "latest" ]; then
-    LATEST_TAG=$(curl -fsSL https://api.github.com/repos/amirim1/autosub-server/releases/latest 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
-    if [ -n "$LATEST_TAG" ]; then
-      TARGET_VER="$LATEST_TAG"
-    else
-      TARGET_VER="main"
-    fi
+cleanup() {
+  if [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ]; then
+    case "$TMP_DIR" in
+      "$APP_DIR"/releases/.source-*) rm -rf -- "$TMP_DIR" ;;
+      *) echo "Refusing to remove unexpected temporary path" >&2 ;;
+    esac
   fi
-  echo -e "⏳ Fetching latest AutoSub Server updates (version: \033[1;36m$TARGET_VER\033[0m) from GitHub..."
-  if command -v git &>/dev/null; then
-    git clone -q --depth 1 --branch "$TARGET_VER" https://github.com/amirim1/autosub-server.git "$TMP_DIR" 2>/dev/null || git clone -q --depth 1 https://github.com/amirim1/autosub-server.git "$TMP_DIR" 2>/dev/null
-  else
-    curl -fsSL "https://github.com/amirim1/autosub-server/archive/refs/tags/${TARGET_VER}.tar.gz?t=$(date +%s)" 2>/dev/null | tar -xz -C "$TMP_DIR" --strip-components=1 2>/dev/null || \
-    curl -fsSL "https://github.com/amirim1/autosub-server/archive/refs/heads/${TARGET_VER}.tar.gz?t=$(date +%s)" | tar -xz -C "$TMP_DIR" --strip-components=1
-  fi
-  SRC_DIR="$TMP_DIR"
+}
+trap cleanup EXIT
+
+fail() {
+  echo "AutoSub update failed: $*" >&2
+  exit 1
+}
+
+if [ "${AUTOSUB_SKIP_ROOT_CHECK:-0}" != "1" ] && [ "$(id -u)" -ne 0 ]; then
+  fail "run this updater as root"
 fi
 
-BACKUP_DIR="/opt/autosub-server/shared/backups/$(date +%Y%m%d-%H%M%S)"
+for command in "$PYTHON" git curl flock systemctl df; do
+  command -v "$command" >/dev/null 2>&1 || fail "required command not found: $command"
+done
 
-mkdir -p "$APP_DIR" "$BACKUP_DIR"
+install -d -m 700 "$APP_DIR" "$APP_DIR/releases" "$APP_DIR/shared/backups"
+exec 9>"$APP_DIR/.update.lock"
+if ! flock -n 9; then
+  fail "update already in progress"
+fi
 
-install_file() {
-  local src="$1"
-  local dst="$2"
-  if [ "$(readlink -f "$src")" != "$(readlink -f "$dst" 2>/dev/null || true)" ]; then
-    cp "$src" "$dst"
+resolve_source() {
+  if [ -n "${AUTOSUB_SOURCE_DIR:-}" ]; then
+    SRC_DIR="$AUTOSUB_SOURCE_DIR"
+    return
+  fi
+  if [ -f "$SCRIPT_DIR/autosub_server.py" ]; then
+    SRC_DIR="$SCRIPT_DIR"
+    return
+  fi
+
+  TMP_DIR="$(mktemp -d "$APP_DIR/releases/.source-XXXXXXXX")"
+  : >"$TMP_DIR/.autosub-source"
+  local requested="${AUTOSUB_VERSION:-latest}"
+  if [ "$requested" = "latest" ]; then
+    if ! requested="$(
+      curl --fail --location --silent --show-error \
+        https://api.github.com/repos/amirim1/autosub-server/releases/latest \
+        | sed -nE 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' \
+        | head -n 1
+    )"; then
+      fail "could not resolve the latest release tag"
+    fi
+    [ -n "$requested" ] || fail "latest release metadata has no tag"
+  fi
+  if [[ ! "$requested" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
+    fail "unsafe version/ref"
+  fi
+  echo "Fetching AutoSub source ref: $requested" >&2
+  git clone --quiet --depth 1 --branch "$requested" \
+    https://github.com/amirim1/autosub-server.git "$TMP_DIR/checkout" \
+    || fail "could not fetch the exact requested ref"
+  SRC_DIR="$TMP_DIR/checkout"
+}
+
+wait_local_health() {
+  local path="$1"
+  local deadline=$((SECONDS + HEALTH_TIMEOUT))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if curl --fail --silent --show-error --max-time 2 \
+      "http://127.0.0.1:${HEALTH_PORT}${path}" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+install_service_unit() {
+  local source="$1"
+  local unit_dir
+  unit_dir="$(dirname "$SERVICE_UNIT")"
+  local temporary
+  temporary="$(mktemp "$unit_dir/.autosub-server.service.XXXXXX")"
+  install -m 600 "$source" "$temporary"
+  mv -f -- "$temporary" "$SERVICE_UNIT"
+  systemctl daemon-reload
+}
+
+validate_service_unit() {
+  local unit="$1"
+  grep -Fqx 'WorkingDirectory=/opt/autosub-server/current' "$unit" \
+    || fail "systemd unit has an unexpected WorkingDirectory"
+  grep -Fqx 'EnvironmentFile=/opt/autosub-server/shared/.env' "$unit" \
+    || fail "systemd unit has an unexpected EnvironmentFile"
+  grep -Fqx \
+    'ExecStart=/opt/autosub-server/current/venv/bin/python /opt/autosub-server/current/autosub_server.py' \
+    "$unit" || fail "systemd unit has an unexpected ExecStart"
+  if grep -Eq '^(User|Group)=autosub$' "$unit"; then
+    fail "dedicated autosub service identity is not supported"
   fi
 }
 
-if [ -f "$APP_DIR/autosub_server.py" ]; then
-  cp "$APP_DIR/autosub_server.py" "$BACKUP_DIR/autosub_server.py"
-fi
-
-if [ -f "$APP_DIR/config.json" ]; then
-  cp "$APP_DIR/config.json" "$BACKUP_DIR/config.json"
-fi
-
-if [ -f "$APP_DIR/.env" ]; then
-  cp "$APP_DIR/.env" "$BACKUP_DIR/.env"
-fi
-
-install_file "$SRC_DIR/autosub_server.py" "$APP_DIR/autosub_server.py"
-install_file "$SRC_DIR/config.py" "$APP_DIR/config.py"
-install_file "$SRC_DIR/storage.py" "$APP_DIR/storage.py"
-install_file "$SRC_DIR/fingerprint.py" "$APP_DIR/fingerprint.py"
-install_file "$SRC_DIR/api_client.py" "$APP_DIR/api_client.py"
-install_file "$SRC_DIR/subscription_cache.py" "$APP_DIR/subscription_cache.py"
-install_file "$SRC_DIR/rate_limiter.py" "$APP_DIR/rate_limiter.py"
-install_file "$SRC_DIR/subscription_representation.py" "$APP_DIR/subscription_representation.py"
-install_file "$SRC_DIR/http_client_config.py" "$APP_DIR/http_client_config.py"
-install_file "$SRC_DIR/http_client_errors.py" "$APP_DIR/http_client_errors.py"
-install_file "$SRC_DIR/http_clients.py" "$APP_DIR/http_clients.py"
-install_file "$SRC_DIR/builder.py" "$APP_DIR/builder.py"
-install_file "$SRC_DIR/dashboard.py" "$APP_DIR/dashboard.py"
-install_file "$SRC_DIR/logger.py" "$APP_DIR/logger.py"
-install_file "$SRC_DIR/logging_utils.py" "$APP_DIR/logging_utils.py"
-install_file "$SRC_DIR/http_security.py" "$APP_DIR/http_security.py"
-install_file "$SRC_DIR/csrf.py" "$APP_DIR/csrf.py"
-install_file "$SRC_DIR/database_errors.py" "$APP_DIR/database_errors.py"
-install_file "$SRC_DIR/database_backup.py" "$APP_DIR/database_backup.py"
-install_file "$SRC_DIR/database_schema.py" "$APP_DIR/database_schema.py"
-install_file "$SRC_DIR/migrations.py" "$APP_DIR/migrations.py"
-install_file "$SRC_DIR/nginx-example.conf" "$APP_DIR/nginx-example.conf"
-install_file "$SRC_DIR/README.md" "$APP_DIR/README.md"
-install_file "$SRC_DIR/setup_nginx.sh" "$APP_DIR/setup_nginx.sh"
-install_file "$SRC_DIR/finish_setup.sh" "$APP_DIR/finish_setup.sh"
-install_file "$SRC_DIR/requirements.txt" "$APP_DIR/requirements.txt"
-cp "$SRC_DIR/autosub-server.service" /etc/systemd/system/autosub-server.service
-
-# Install python dependencies
-echo -e "📦 Setting up Python virtual environment..."
-if [ ! -d "$APP_DIR/venv" ]; then
-  if ! python3 -c "import venv" &>/dev/null; then
-    echo "Installing python3-venv package..."
-    if apt-get update -y; then
-      apt-get install -y python3-venv || true
-    fi
-  fi
-  python3 -m venv "$APP_DIR/venv"
-fi
-"$APP_DIR/venv/bin/pip" install -q --require-hashes -r "$APP_DIR/requirements.txt"
-
-# Copy static assets and templates
-mkdir -p "$APP_DIR/static" "$APP_DIR/templates"
-if [ -d "$SRC_DIR/static" ]; then
-  cp -r "$SRC_DIR/static/"* "$APP_DIR/static/" 2>/dev/null || true
-fi
-if [ -d "$SRC_DIR/templates" ]; then
-  cp -r "$SRC_DIR/templates/"* "$APP_DIR/templates/" 2>/dev/null || true
-fi
-
-if [ ! -f "$APP_DIR/.env" ]; then
-  cp "$SRC_DIR/.env.example" "$APP_DIR/.env"
-fi
-
-if [ ! -f "$APP_DIR/config.json" ]; then
-  cp "$SRC_DIR/config.example.json" "$APP_DIR/config.json"
-fi
-
-python3 - <<'PY'
-import json
+ensure_shared_defaults() {
+  local source="$1"
+  if [ ! -f "$APP_DIR/shared/.env" ]; then
+    install -m 600 "$source/.env.example" "$APP_DIR/shared/.env"
+    "$PYTHON" - "$APP_DIR/shared/.env" <<'PY'
+import secrets
+import sys
 from pathlib import Path
-p = Path("/opt/autosub-server/config.json")
-data = json.loads(p.read_text(encoding="utf-8"))
-changed = False
-for item in data.get("autoselects", []):
-    if item.get("id") == "all" and not item.get("selected_node_ids"):
-        item["selected_node_ids"] = ["*"]
-        changed = True
-if changed:
-    p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+path = Path(sys.argv[1])
+lines = path.read_text(encoding="utf-8").splitlines()
+secret = secrets.token_urlsafe(48)
+updated = [
+    f"AUTOSUB_SECRET_KEY={secret}"
+    if line.startswith("AUTOSUB_SECRET_KEY=")
+    else line
+    for line in lines
+]
+path.write_text("\n".join(updated) + "\n", encoding="utf-8")
 PY
+  fi
+  if [ ! -f "$APP_DIR/shared/config.json" ]; then
+    install -m 600 "$source/config.example.json" "$APP_DIR/shared/config.json"
+  fi
+  chmod 600 "$APP_DIR/shared/.env" "$APP_DIR/shared/config.json"
+}
 
-chmod 600 "$APP_DIR/.env"
-chmod +x "$APP_DIR/setup_nginx.sh"
-chmod +x "$APP_DIR/finish_setup.sh"
-grep -q '^XUI_SUB_URL=' "$APP_DIR/.env" || echo 'XUI_SUB_URL=https://YOUR_DOMAIN:2096' >> "$APP_DIR/.env"
-grep -q '^XUI_API_URL=' "$APP_DIR/.env" || echo 'XUI_API_URL=https://YOUR_DOMAIN:PANEL_PORT' >> "$APP_DIR/.env"
-grep -q '^XUI_API_TOKEN=' "$APP_DIR/.env" || echo 'XUI_API_TOKEN=' >> "$APP_DIR/.env"
-grep -q '^AUTOSUB_ADMIN_PASSWORD=' "$APP_DIR/.env" || echo 'AUTOSUB_ADMIN_PASSWORD=' >> "$APP_DIR/.env"
-systemctl daemon-reload
-systemctl restart autosub-server
+check_disk_space() {
+  if [[ ! "$MIN_FREE_KB" =~ ^[0-9]+$ ]]; then
+    fail "AUTOSUB_MIN_FREE_KB must be an integer"
+  fi
+  local free_kb
+  free_kb="$(df -Pk "$APP_DIR" | awk 'NR == 2 {print $4}')"
+  if [ -z "$free_kb" ] || [ "$free_kb" -lt "$MIN_FREE_KB" ]; then
+    fail "insufficient free disk space (need at least ${MIN_FREE_KB} KiB)"
+  fi
+}
 
-echo -e "✅ \033[1;32mAutoSub updated successfully!\033[0m"
-echo "Backup: $BACKUP_DIR"
-echo "Status: systemctl status autosub-server --no-pager"
+rollback_to_flat_service() {
+  local unit_backup="$1"
+  if [ -f "$unit_backup" ]; then
+    install_service_unit "$unit_backup" || true
+  fi
+  systemctl restart "$SERVICE_NAME" || true
+}
+
+SRC_DIR=""
+check_disk_space
+resolve_source
+[ -f "$SRC_DIR/release_manager.py" ] || fail "release manager missing from source"
+[ -f "$SRC_DIR/runtime-manifest.txt" ] || fail "runtime manifest missing from source"
+[ -f "$SRC_DIR/autosub-server.service" ] || fail "systemd unit missing from source"
+MANAGER="$SRC_DIR/release_manager.py"
+MANIFEST="$SRC_DIR/runtime-manifest.txt"
+validate_service_unit "$SRC_DIR/autosub-server.service"
+
+"$PYTHON" "$MANAGER" cleanup-staging "$APP_DIR" --preserve "$SRC_DIR"
+
+PORT_ENV="$APP_DIR/shared/.env"
+if [ ! -f "$PORT_ENV" ] && [ -f "$APP_DIR/.env" ]; then
+  PORT_ENV="$APP_DIR/.env"
+fi
+HEALTH_PORT="$(
+  "$PYTHON" "$MANAGER" port "$PORT_ENV" --override "$HEALTH_PORT" --default 25500
+)"
+"$PYTHON" "$MANAGER" recover "$APP_DIR" \
+  --service "$SERVICE_NAME" --port "$HEALTH_PORT" --timeout "$HEALTH_TIMEOUT"
+
+TARGET_REQUEST="${AUTOSUB_VERSION:-}"
+RELEASE_ID="$(
+  "$PYTHON" "$MANAGER" release-id "$SRC_DIR" "$MANIFEST" \
+    --requested "$TARGET_REQUEST"
+)"
+echo "Preparing release: $RELEASE_ID"
+"$PYTHON" "$MANAGER" prepare \
+  "$APP_DIR" "$SRC_DIR" "$MANIFEST" "$RELEASE_ID" --python "$PYTHON"
+
+LEGACY_LAYOUT=0
+if [ ! -L "$APP_DIR/current" ] && [ -f "$APP_DIR/autosub_server.py" ]; then
+  LEGACY_LAYOUT=1
+fi
+
+if [ "$LEGACY_LAYOUT" -eq 1 ]; then
+  echo "Migrating legacy flat installation"
+  LEGACY_ID="$("$PYTHON" "$MANAGER" legacy-id "$APP_DIR")"
+  "$PYTHON" "$MANAGER" prepare \
+    "$APP_DIR" "$APP_DIR" "$MANIFEST" "$LEGACY_ID" \
+    --python "$PYTHON" --allow-missing
+
+  UNIT_BACKUP="$APP_DIR/shared/backups/autosub-server.service-pre-layout"
+  if [ -f "$SERVICE_UNIT" ] && [ ! -f "$UNIT_BACKUP" ]; then
+    install -m 600 "$SERVICE_UNIT" "$UNIT_BACKUP"
+  fi
+  systemctl stop "$SERVICE_NAME"
+  if ! "$PYTHON" "$MANAGER" migrate-legacy "$APP_DIR" "$LEGACY_ID"; then
+    rollback_to_flat_service "$UNIT_BACKUP"
+    fail "legacy persistent-data migration failed; flat service was restarted"
+  fi
+  ensure_shared_defaults "$SRC_DIR"
+  if ! install_service_unit "$SRC_DIR/autosub-server.service" \
+    || ! "$PYTHON" "$MANAGER" switch "$APP_DIR" "$LEGACY_ID" \
+    || ! systemctl restart "$SERVICE_NAME" \
+    || ! wait_local_health "/health"; then
+    rollback_to_flat_service "$UNIT_BACKUP"
+    fail "legacy layout activation failed; flat service restart was attempted"
+  fi
+  echo "Legacy release active: $LEGACY_ID"
+else
+  ensure_shared_defaults "$SRC_DIR"
+fi
+
+PREVIOUS_RELEASE="$(
+  "$PYTHON" "$MANAGER" current "$APP_DIR" --optional
+)"
+install_service_unit "$SRC_DIR/autosub-server.service"
+
+set +e
+"$PYTHON" "$MANAGER" activate "$APP_DIR" "$RELEASE_ID" \
+  --service "$SERVICE_NAME" --port "$HEALTH_PORT" --timeout "$HEALTH_TIMEOUT"
+ACTIVATION_STATUS=$?
+set -e
+if [ "$ACTIVATION_STATUS" -ne 0 ]; then
+  if [ "$ACTIVATION_STATUS" -eq 20 ]; then
+    echo "UPDATE_FAILED_ROLLBACK_SUCCEEDED" >&2
+  else
+    echo "UPDATE_FAILED_ROLLBACK_FAILED" >&2
+  fi
+  exit "$ACTIVATION_STATUS"
+fi
+
+systemctl enable "$SERVICE_NAME"
+"$PYTHON" "$MANAGER" retain "$APP_DIR" \
+  --keep "$KEEP_RELEASES" --previous "$PREVIOUS_RELEASE"
+
+UPDATER_TEMP="$APP_DIR/.update.sh.new"
+install -m 700 "$SRC_DIR/update.sh" "$UPDATER_TEMP"
+mv -f -- "$UPDATER_TEMP" "$APP_DIR/update.sh"
+
+echo "AutoSub update succeeded"
+echo "Active release: $RELEASE_ID"
+echo "Previous release: ${PREVIOUS_RELEASE:-none}"
+echo "Readiness: http://127.0.0.1:${HEALTH_PORT}/health/ready"

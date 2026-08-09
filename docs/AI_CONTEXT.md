@@ -33,6 +33,8 @@ autoescaped HTML AutoSub; upstream HTML никогда не возвращает
 - `docs/` — project documentation
 - `.env.example`, `config.example.json` — configuration examples; secrets must remain outside Git
 - `install.sh`, `update.sh`, `autosub-server.service` — Linux deployment
+- `release_manager.py`, `runtime_paths.py`, `runtime-manifest.txt` — atomic releases,
+  persistent path separation, and the runtime allowlist
 - `nginx-example.conf`, `setup_nginx.sh`, `finish_setup.sh` — reverse proxy and service setup
 - `CHANGELOG.md` — release history
 
@@ -56,7 +58,13 @@ Representation/XSS regressions находятся в `tests/test_subscription_re
 
 Production использует Linux/systemd и reverse proxy Nginx. Перед deployment проверяй `.env`, trusted proxies, TLS и `nginx -t`; Windows-аудит не заменяет Linux smoke test.
 
-`AUTOSUB_APP_DIR`, `AUTOSUB_DB`, `AUTOSUB_CONFIG` и `AUTOSUB_LOG` управляют путями runtime. По умолчанию service работает из `/opt/autosub-server`, слушает `127.0.0.1:25500`, а Nginx проксирует `/json/` и `/sub/`.
+Production задаёт `AUTOSUB_ROOT=/opt/autosub-server`: код и venv берутся из
+`current`, persistent state — из `shared`. `AUTOSUB_APP_DIR`, `AUTOSUB_SHARED_DIR`,
+`AUTOSUB_DB`, `AUTOSUB_CONFIG`, `AUTOSUB_LOG` и `AUTOSUB_BACKUP_DIR` остаются
+test/override knobs. Root-managed systemd service не создаёт Unix user `autosub`.
+Updater использует marker-based staging, exact Git ref, atomic symlink, SQLite backup,
+local readiness и code rollback; production activation не доказывает отсутствие
+write traffic, поэтому DB restore после start остаётся manual/fail-closed.
 
 ## Important Rules
 

@@ -320,7 +320,8 @@ class Storage:
                 params.append(normalize_autoselect_strategy(strategy))
             if updates:
                 params.append(autoselect_id)
-                query = f"UPDATE autoselects SET {', '.join(updates)} WHERE id = ?"
+                # Column fragments come only from the fixed branches above.
+                query = f"UPDATE autoselects SET {', '.join(updates)} WHERE id = ?"  # nosec B608
                 await self.conn.execute(query, tuple(params))
                 await self.conn.commit()
 

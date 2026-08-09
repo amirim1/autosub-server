@@ -51,5 +51,14 @@
 - `config.py` — Загрузка конфигурации и переменных окружения (`.env`).
 - `dashboard.py` / `templates/` / `static/` — Панель администратора и безопасная local subscription page (HTML/JS/CSS).
 - `update.sh` — Скрипт автоматического обновления сервера с GitHub.
+- `release_manager.py` — безопасная подготовка releases, symlink switch, SQLite backup
+  и тестируемый activation/rollback state machine.
+- `runtime_paths.py` — разделение активного release и persistent `shared/`.
+- `runtime-manifest.txt` — единый allowlist состава production release.
 - `install.sh` / `setup_nginx.sh` — Скрипты первичной установки и настройки Nginx.
 - `tests/` — Модульные тесты (`test_builder.py`, `test_fingerprint.py`, `test_storage.py`).
+
+Production layout: `/opt/autosub-server/current -> releases/<id>`, per-release `venv`
+и `/opt/autosub-server/shared/{.env,config.json,data.db,autosub.log,backups}`. Service
+остаётся root-managed без отдельного Unix user. `.codex/` и docs tracked в Git, но не
+входят в `runtime-manifest.txt` и не копируются в production release.
