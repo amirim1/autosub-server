@@ -79,6 +79,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes shellcheck
       - name: Check deployment scripts
-        run: shellcheck install.sh update.sh setup_nginx.sh
+        run: shellcheck install.sh update.sh setup_nginx.sh finish_setup.sh
       - name: Check shell syntax
-        run: bash -n install.sh update.sh setup_nginx.sh
+        run: bash -n install.sh update.sh setup_nginx.sh finish_setup.sh

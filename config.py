@@ -6,7 +6,7 @@ from logger import logger
 from runtime_paths import get_autosub_root, get_release_dir, get_shared_dir
 
 
-VERSION = "2.1.0"
+VERSION = "3.0.0"
 
 AUTOSUB_ROOT = get_autosub_root()
 APP_DIR = get_release_dir()

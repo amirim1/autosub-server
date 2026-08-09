@@ -2,78 +2,52 @@
 
 All notable changes to AutoSub Server will be documented in this file.
 
+## [v3.0.0] - Unreleased
+
+### Security
+- Hardened admin authentication by enforcing both username and password, rejecting
+  unsafe non-loopback configurations, and rate-limiting authentication attempts.
+- Replaced process-local CSRF state with reusable HMAC-SHA256 tokens and added request
+  IDs, redacted errors/logs, and consistent security headers.
+- Added trusted-proxy-aware public/admin rate limiting with spoof-safe forwarded-header
+  parsing and explicit `429`/`Retry-After` responses.
+- Replaced execution of upstream HTML on legacy `/sub/` URLs with a local autoescaped
+  AutoSub page using a strict CSP and `no-store`.
+
+### Reliability
+- Made SQLite migrations transactional, with schema validation, integrity checks, and
+  verified backups before upgrades.
+- Made legacy `config.json` recovery fail closed and retryable through strict validation,
+  transactional import, post-write verification, and a last-written migration marker.
+- Moved upstream HTTP clients into FastAPI lifespan with bounded pools, explicit
+  timeouts, response-size limits, isolated panel sessions, and shutdown cleanup.
+- Added a bounded LRU/TTL subscription cache with hashed keys, per-key single-flight,
+  stale-if-error behavior, and generation-based invalidation.
+
+### Deployment
+- Introduced the root-managed `releases/current/shared` layout with release-local
+  virtual environments and a manifest-defined immutable runtime payload.
+- Added a locked, atomic updater with verified SQLite backups, readiness gating, code
+  rollback, interrupted-update recovery, bounded retention, and safe migration from the
+  legacy flat layout.
+
+### Compatibility / Breaking Changes
+- Python 3.10 is now the minimum supported version.
+- Production deployment now uses `/opt/autosub-server/{releases,current,shared}`.
+- Invalid legacy configuration now stops startup instead of being silently ignored.
+- Browser requests to legacy `/sub/` URLs now receive local AutoSub HTML rather than
+  the upstream panel page; generated JSON routes and payloads remain compatible.
+- The configured admin username is enforced as well as the password.
+- Non-loopback deployments require secure admin authentication configuration.
+- Production requires a stable `AUTOSUB_SECRET_KEY` for restart-safe CSRF tokens.
+- Rate limiting can return HTTP `429` with `Retry-After`.
+- Automatic database restore is intentionally not performed after a normal production
+  activation failure because the new release may already have accepted writes; the
+  verified backup is retained for manual recovery.
+
+---
+
 ## [v2.1.0] - 2026-07-31
-
-2026-08-09: Final hardening завершает recovery/deployment cycle: malformed legacy
-`config.json` теперь строго проверяется и импортируется с verify-before-marker в одной
-SQLite-транзакции; failed import остаётся retryable. Уточнены readiness lifecycle,
-root-managed installer/systemd, runtime manifest smoke tests и Linux shell CI gates.
-
-2026-08-09: Final hardening completes the recovery/deployment cycle. Malformed legacy
-`config.json` is now strictly validated and imported with verify-before-marker in one
-SQLite transaction, keeping failed imports retryable. Readiness lifecycle,
-root-managed installer/systemd behavior, manifest-only smoke tests, and Linux shell CI
-gates are finalized.
-
-2026-08-09: Deployment переведён на root-managed release layout
-`releases/current/shared`: per-release venv, единый runtime manifest, безопасная
-legacy migration, SQLite pre-update backup, atomic symlink activation, local readiness,
-code rollback, updater `flock` и bounded retention. DB restore после обычного systemd
-start остаётся manual, поскольку write traffic нельзя доказанно исключить.
-
-2026-08-09: Moved deployment to a root-managed `releases/current/shared` layout with
-per-release venvs, one runtime manifest, safe legacy migration, pre-update SQLite
-backup, atomic symlink activation, local readiness, code rollback, updater `flock`,
-and bounded retention. DB restore remains manual after normal systemd startup because
-write traffic cannot be proven absent.
-
-2026-08-09: Upstream HTML для legacy `/sub/` заменён локальной autoescaped
-страницей AutoSub со строгой CSP и `no-store`. Добавлены детерминированные
-`format=json|html`, weighted Accept negotiation и безопасные local error pages;
-JSON payload, cache, rate limits и VPN-client compatibility сохранены.
-
-2026-08-09: Replaced upstream HTML on legacy `/sub/` with a local autoescaped
-AutoSub page using a strict CSP and `no-store`. Added deterministic
-`format=json|html`, weighted Accept negotiation, and safe local error pages while
-preserving JSON payloads, cache behavior, rate limits, and VPN-client compatibility.
-
-2026-08-09: Ограничен и усилен process-local rate limiter: sliding window,
-4096 LRU buckets, idle expiry, отдельные public/admin/expensive policies,
-trusted-proxy validation, spoof-safe XFF parsing и корректные `429` с
-`Retry-After`. Redis и изменения публичных payload не требуются.
-
-2026-08-09: Bounded and hardened the process-local rate limiter with a sliding
-window, 4096 LRU buckets, idle expiry, separate public/admin/expensive policies,
-validated trusted proxies, spoof-safe XFF parsing, and `429` responses carrying
-`Retry-After`. No Redis or public-payload changes are required.
-
-2026-08-09: Добавлен ограниченный process-local LRU/TTL-кэш готовых публичных
-подписок: SHA-256 ключи, per-key single-flight, stale-if-error для временных
-upstream-сбоев, поколенческая инвалидация после admin-изменений и безопасное
-завершение через FastAPI lifespan. Публичные маршруты и форматы ответов сохранены.
-
-2026-08-09: Added a bounded process-local LRU/TTL cache for fully built public
-subscriptions, with SHA-256 keys, per-key single-flight, stale-if-error for transient
-upstream failures, generation invalidation after admin mutations, and lifespan-safe
-shutdown. Public routes and response formats remain unchanged.
-
-2026-08-09: Перенести upstream HTTP-клиенты под управление FastAPI lifespan:
-переиспользовать bounded connection pools, изолировать 3x-ui sessions, добавить
-явные phase timeouts и response-size limits, безопасную ротацию credentials и
-гарантированное закрытие при shutdown (завершено).
-
-2026-08-09: Move upstream HTTP clients under FastAPI lifespan management: reuse
-bounded connection pools, isolate 3x-ui sessions, enforce explicit phase timeouts
-and response-size limits, rotate credentials safely, and close resources reliably
-during shutdown (completed).
-
-2026-08-04: Сделать SQLite-миграции транзакционными, добавить integrity checks и консистентный backup перед upgrade - ошибки больше не повышают `schema_version`, startup завершается с rollback (завершено).
-
-2026-08-04: Заменить process-local CSRF store на reusable HMAC-SHA256 tokens и перенести backup root в `/opt/autosub-server/shared/backups/` - админ-формы совместимы с restart/workers без server-side token state (завершено).
-
-2026-08-04: Добавить request ID, редактирование чувствительных логов и security headers - ошибки сопоставимы без утечки subscription ID, email и upstream secrets (завершено).
-
-2026-08-01: Исправить ложную поддержку шифрования Happ в `autosub_server.py`, `builder.py` и админке - удалены недокументированные заголовки и поля payload, обычная JSON-подписка больше не заявляется как зашифрованная (завершено).
 
 ### Fixed
 - **Probe Interval Persistence**: `probe_interval` from SQLite and the dashboard now propagates into generated `burstObservatory.pingConfig.interval` instead of being hardcoded.

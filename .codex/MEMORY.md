@@ -2,6 +2,9 @@
 
 ## Final Hardening State
 
+Release candidate metadata is `3.0.0`. PR №1–12 are complete, and remote GitHub
+Actions have not yet executed for the final branch.
+
 PR №12 closes the last known strict xfail. Existing legacy `shared/config.json` is
 parsed as strict UTF-8 JSON, minimally validated, and imported by
 `Storage.migrate_from_config()` using `BEGIN IMMEDIATE`; persisted rows are verified
