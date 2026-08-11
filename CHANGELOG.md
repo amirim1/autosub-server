@@ -2,7 +2,7 @@
 
 All notable changes to AutoSub Server will be documented in this file.
 
-## [v3.0.0] - Unreleased
+## [v3.0.0] - 2026-08-11
 
 ### Security
 - Hardened admin authentication by enforcing both username and password, rejecting
