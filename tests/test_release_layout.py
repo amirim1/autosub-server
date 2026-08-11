@@ -77,6 +77,34 @@ def test_release_preparation_is_separate_and_failure_cleans_staging(tmp_path):
     assert not list(layout.releases.glob(".staging-*"))
 
 
+def test_legacy_venv_uses_exact_release_requirements_lock(tmp_path, monkeypatch):
+    release = tmp_path / "legacy-release"
+    release.mkdir()
+    requirements = release / "requirements.txt"
+    requirements.write_text("fastapi\n", encoding="utf-8")
+    lock = tmp_path / "requirements-lock.txt"
+    locked_content = "fastapi==1.2.3 --hash=sha256:" + "a" * 64 + "\n"
+    lock.write_text(locked_content, encoding="utf-8")
+    calls = []
+
+    def record(command, **kwargs):
+        calls.append((command, kwargs))
+
+    monkeypatch.setattr(release_manager.subprocess, "run", record)
+
+    release_manager.prepare_release_venv(
+        release,
+        "python3",
+        tmp_path / "autosub-server",
+        requirements_lock=lock,
+    )
+
+    assert requirements.read_text(encoding="utf-8") == locked_content
+    pip_command = calls[1][0]
+    assert "--require-hashes" in pip_command
+    assert pip_command[-1] == str(requirements)
+
+
 @pytest.mark.parametrize(
     "name", ["../evil", "/absolute/path", "nested/../../evil", "back\\slash", ".staging-x"]
 )
@@ -289,6 +317,7 @@ def test_systemd_and_manifest_contracts():
     assert "flock -n" in updater
     assert ".update.lock" in updater
     assert '"$MANAGER" recover' in updater
+    assert '--requirements-lock "$SRC_DIR/requirements.txt"' in updater
     assert 'requested="${requested:-main}"' not in updater
     assert "--require-hashes" in Path("release_manager.py").read_text(encoding="utf-8")
     assert not any(

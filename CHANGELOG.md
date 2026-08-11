@@ -2,6 +2,13 @@
 
 All notable changes to AutoSub Server will be documented in this file.
 
+## [v3.0.2] - 2026-08-11
+
+### Fixed
+- Made legacy flat-layout migration build its rollback checkpoint with the exact
+  release's hash-locked dependencies instead of trying to apply hash enforcement to
+  the unpinned legacy `requirements.txt`.
+
 ## [v3.0.1] - 2026-08-11
 
 ### Fixed
