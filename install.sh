@@ -2,7 +2,7 @@
 set -euo pipefail
 umask 077
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 APP_DIR="${AUTOSUB_ROOT:-/opt/autosub-server}"
 TMP_DIR=""
 

@@ -10,7 +10,7 @@ HEALTH_PORT="${AUTOSUB_PORT:-}"
 HEALTH_TIMEOUT="${AUTOSUB_HEALTH_TIMEOUT:-45}"
 KEEP_RELEASES="${AUTOSUB_KEEP_RELEASES:-3}"
 MIN_FREE_KB="${AUTOSUB_MIN_FREE_KB:-524288}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 TMP_DIR=""
 
 cleanup() {
