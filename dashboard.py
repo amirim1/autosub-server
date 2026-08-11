@@ -4,7 +4,7 @@ import re
 import urllib.parse
 from pathlib import Path
 
-from api_client import get_xui_api, extract_client_groups, fetch_original_subscription, normalize_subscription
+from api_client import extract_client_groups, fetch_original_subscription, normalize_subscription
 from builder import (
     allowed_autoselect_ids,
     enrich_profiles,
@@ -14,6 +14,7 @@ from builder import (
 from fingerprint import node_name, profile_node_id, node_summary
 from fastapi.templating import Jinja2Templates
 from config import APP_DIR, VERSION
+from logger import logger
 
 templates_dir = APP_DIR / "templates"
 if not templates_dir.exists():
@@ -33,64 +34,67 @@ def page_head():
 <script src="/static/dashboard.js"></script>"""
 
 
-async def api_clients_safe(limit=500):
+async def api_clients_safe(client_manager=None, limit=500):
     """Fetch clients from 3x-ui API. Returns (clients_list, error_string)."""
     try:
-        api = get_xui_api()
-        if not api.enabled():
+        if client_manager is None:
             return [], "XUI credentials are not configured"
-        
-        db_clients = []
-        try:
-            db_clients = await api.clients_list()
-        except Exception:
-            pass
-            
-        group_map = {}
-        try:
-            group_map = await api.group_map()
-        except Exception:
-            pass
-            
-        client_groups_cache = {}
-        for c in db_clients:
-            c_sub_id = c.get("subId") or c.get("sub_id") or c.get("subscriptionId") or c.get("subscription_id")
-            c_email = c.get("email")
-            raw_grps = extract_client_groups(c)
-            expanded_grps = api._expand_group_names(raw_grps, group_map)
-            if c_sub_id:
-                client_groups_cache[str(c_sub_id)] = expanded_grps
-            if c_email:
-                client_groups_cache[str(c_email)] = expanded_grps
+        async with client_manager.panel_api() as api:
+            if api is None:
+                return [], "XUI credentials are not configured"
 
-        clients = []
-        for client in await api.clients_from_inbounds():
-            sub_id = client.get("subId") or client.get("sub_id") or client.get("subscriptionId") or client.get("id") or ""
-            email = client.get("email") or ""
-            
-            grps = client_groups_cache.get(str(sub_id)) or client_groups_cache.get(email) or extract_client_groups(client)
-            
-            clients.append({
-                "email": email,
-                "sub_id": sub_id,
-                "groups": grps,
-                "inbound": client.get("_inbound_remark") or "",
-            })
-        return clients[:limit], ""
-    except Exception as exc:
-        return [], str(exc)
+            db_clients = []
+            try:
+                db_clients = await api.clients_list()
+            except Exception:
+                pass
+
+            group_map = {}
+            try:
+                group_map = await api.group_map()
+            except Exception:
+                pass
+
+            client_groups_cache = {}
+            for c in db_clients:
+                c_sub_id = c.get("subId") or c.get("sub_id") or c.get("subscriptionId") or c.get("subscription_id")
+                c_email = c.get("email")
+                raw_grps = extract_client_groups(c)
+                expanded_grps = api._expand_group_names(raw_grps, group_map)
+                if c_sub_id:
+                    client_groups_cache[str(c_sub_id)] = expanded_grps
+                if c_email:
+                    client_groups_cache[str(c_email)] = expanded_grps
+
+            clients = []
+            for client in await api.clients_from_inbounds():
+                sub_id = client.get("subId") or client.get("sub_id") or client.get("subscriptionId") or client.get("id") or ""
+                email = client.get("email") or ""
+                grps = client_groups_cache.get(str(sub_id)) or client_groups_cache.get(email) or extract_client_groups(client)
+                clients.append({
+                    "email": email,
+                    "sub_id": sub_id,
+                    "groups": grps,
+                    "inbound": client.get("_inbound_remark") or "",
+                })
+            return clients[:limit], ""
+    except Exception:
+        logger.exception("Admin client list loading failed")
+        return [], "API connection failed"
 
 
 # --- Shared preview/debug logic ---
 
-async def _resolve_preview_data(storage, sub_id):
+async def _resolve_preview_data(storage, sub_id, client_manager=None):
     """
     Common logic for render_preview and render_debug.
     Returns dict with: original profiles, enriched, client, groups, allowed_ids, autoselect results.
     """
-    original_text, _, _ = await fetch_original_subscription(sub_id)
+    original_text, _, _ = await fetch_original_subscription(
+        sub_id, client_manager=client_manager
+    )
     profiles = normalize_subscription(original_text)
-    client = await resolve_client(sub_id, storage)
+    client = await resolve_client(sub_id, storage, http_manager=client_manager)
     groups = (client or {}).get("groups") or []
     group_rules = await storage.get_group_rules()
     allowed = allowed_autoselect_ids(groups, group_rules)
@@ -141,8 +145,8 @@ async def _resolve_preview_data(storage, sub_id):
 
 # --- Renderers ---
 
-async def render_admin(request, storage, message="", csrf_token=""):
-    clients, clients_error = await api_clients_safe()
+async def render_admin(request, storage, message="", csrf_token="", client_manager=None):
+    clients, clients_error = await api_clients_safe(client_manager)
 
     catalog = await storage.get_node_catalog()
     overrides = await storage.get_client_group_overrides()
@@ -231,8 +235,8 @@ async def render_admin(request, storage, message="", csrf_token=""):
     return templates.TemplateResponse(request=request, name="admin.html", context=context)
 
 
-async def render_preview(request, storage, sub_id):
-    data = await _resolve_preview_data(storage, sub_id)
+async def render_preview(request, storage, sub_id, client_manager=None):
+    data = await _resolve_preview_data(storage, sub_id, client_manager)
     client = data["client"]
     groups = data["groups"]
     enriched = data["enriched"]
@@ -257,31 +261,35 @@ async def render_preview(request, storage, sub_id):
     return templates.TemplateResponse(request=request, name="preview.html", context=context)
 
 
-async def render_api_test():
+async def render_api_test(client_manager=None):
     try:
-        api = get_xui_api()
-        await api.login()
-        inbounds = await api.inbounds()
-        groups = await api.group_map()
-        payload = {
-            "ok": True,
-            "api_url": api.base,
-            "csrf": bool(api.csrf_token),
-            "cookie": bool(api.cookie_header),
-            "inbounds": len(inbounds),
-            "groups": groups,
-        }
-    except Exception as exc:
+        if client_manager is None:
+            raise RuntimeError("HTTP client manager is unavailable")
+        async with client_manager.panel_api() as api:
+            if api is None:
+                raise RuntimeError("XUI credentials are not configured")
+            await api.login()
+            inbounds = await api.inbounds()
+            groups = await api.group_map()
+            payload = {
+                "ok": True,
+                "message": "Connection successful",
+                "csrf": bool(api.csrf_token),
+                "cookie": bool(api.cookie_header),
+                "inbounds": len(inbounds),
+                "groups": groups,
+            }
+    except Exception:
+        logger.exception("Admin API connection test failed")
         payload = {
             "ok": False,
-            "api_url": env_get("XUI_API_URL", env_get("XUI_URL", "")),
-            "error": str(exc),
+            "error": "Connection failed",
         }
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
-async def render_debug(storage, sub_id):
-    data = await _resolve_preview_data(storage, sub_id)
+async def render_debug(storage, sub_id, client_manager=None):
+    data = await _resolve_preview_data(storage, sub_id, client_manager)
     client = data["client"]
     profiles = data["profiles"]
     enriched = data["enriched"]
@@ -383,7 +391,3 @@ async def save_admin_form(storage, data):
                 tag_raw = [tag_raw]
             tag_filter = [t.strip() for t in tag_raw if t.strip()]
             await storage.update_autoselect(aid, selected_node_ids=["*"], tag_filter=tag_filter, name=name, strategy=strategy)
-
-
-# Need env_get for render_api_test fallback
-from config import env_get

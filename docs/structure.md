@@ -41,11 +41,26 @@
 
 - `builder.py` — Логика генерации подписок, автовыбор (leastPing балансировщик), обогащение `address`/`port`, нормализация `vnext`/`servers` для VLESS/VMess/Trojan.
 - `autosub_server.py` — FastAPI веб-сервер, роуты `/json/{sub_id}`, `/admin`, `/health`, ограничение частоты запросов (rate limiting).
+- `rate_limiter.py` — Bounded sliding-window limiter и trusted-proxy resolution.
+- `subscription_representation.py` — Детерминированный выбор JSON/local HTML для `/sub/`.
 - `storage.py` — Работа с SQLite базой данных (`data.db`), хранение групп клиентов, правил и пресетов автовыбора.
-- `api_client.py` — Взаимодействие с API 3x-ui / XUI панелей, кэширование оригинальных подписок.
+- `api_client.py` — Взаимодействие с API 3x-ui / XUI панелей.
+- `subscription_cache.py` — Ограниченный LRU/TTL-кэш готовых публичных подписок,
+  single-flight и stale-if-error.
 - `fingerprint.py` — Генерация уникальных идентификаторов нод (канонические хэши).
 - `config.py` — Загрузка конфигурации и переменных окружения (`.env`).
-- `dashboard.py` / `templates/` / `static/` — Панель администратора (HTML/JS/CSS).
+- `dashboard.py` / `templates/` / `static/` — Панель администратора и безопасная local subscription page (HTML/JS/CSS).
 - `update.sh` — Скрипт автоматического обновления сервера с GitHub.
+- `release_manager.py` — безопасная подготовка releases, symlink switch, SQLite backup
+  и тестируемый activation/rollback state machine.
+- `runtime_paths.py` — разделение активного release и persistent `shared/`.
+- `runtime-manifest.txt` — единый allowlist состава production release.
 - `install.sh` / `setup_nginx.sh` — Скрипты первичной установки и настройки Nginx.
-- `tests/` — Модульные тесты (`test_builder.py`, `test_fingerprint.py`, `test_storage.py`).
+- `tests/` — Модульные и deployment regression tests, включая transactional legacy
+  config recovery, manifest-only release import, fresh layout, upgrade, rollback и
+  interrupted-update recovery на temporary roots/fake runners.
+
+Production layout: `/opt/autosub-server/current -> releases/<id>`, per-release `venv`
+и `/opt/autosub-server/shared/{.env,config.json,data.db,autosub.log,backups}`. Service
+остаётся root-managed без отдельного Unix user. `.codex/` и docs tracked в Git, но не
+входят в `runtime-manifest.txt` и не копируются в production release.

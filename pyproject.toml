@@ -1,0 +1,89 @@
+[project]
+name = "autosub-server"
+version = "3.0.0"
+description = "Local JSON subscription proxy for 3x-ui with configurable autoselect profiles"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+branch = true
+source = ["."]
+omit = [
+    "tests/*",
+    ".venv*/*",
+    "*/site-packages/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+exclude = [
+    ".git",
+    ".venv*",
+    "__pycache__",
+]
+
+[tool.ruff.lint]
+# Start with correctness rules. Import sorting/upgrades/style rules are deferred
+# because enabling them would require a production-wide formatting refactor.
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# Narrow legacy baseline: remove these exceptions when the affected files are
+# deliberately cleaned up; PR #2 does not alter production or predecessor tests.
+"autosub_server.py" = ["F401", "F841"]
+"builder.py" = ["F401"]
+"dashboard.py" = ["E402", "E701", "F401"]
+"storage.py" = ["F401"]
+"tests/test_fingerprint.py" = ["F401"]
+"tests/test_storage.py" = ["F401"]
+
+[tool.pyright]
+pythonVersion = "3.10"
+typeCheckingMode = "basic"
+# The legacy dynamic builder/fingerprint/storage modules account for 63 current
+# errors. Check the remaining production entry points now and expand this list
+# as those modules receive deliberate typing work.
+include = [
+    "api_client.py",
+    "autosub_server.py",
+    "config.py",
+    "database_backup.py",
+    "database_errors.py",
+    "database_schema.py",
+    "dashboard.py",
+    "http_client_config.py",
+    "http_client_errors.py",
+    "http_clients.py",
+    "logger.py",
+    "migrations.py",
+    "rate_limiter.py",
+    "subscription_representation.py",
+    "subscription_cache.py",
+]
+exclude = [
+    "tests",
+    ".venv*",
+    "__pycache__",
+]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv-ci", ".venv-runtime", ".venv-development"]
+# storage.py builds the SET clause only from hard-coded column names; values
+# remain parameterized. B608 therefore reports a Medium/Low false positive.
+skips = ["B608"]

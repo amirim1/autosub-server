@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 import autosub_server
+import config
+from rate_limiter import RateLimitPolicy
 
 
 def _request(peer=None, headers=None):
@@ -59,11 +61,11 @@ def test_client_ip_uses_nearest_untrusted_forwarded_address(monkeypatch):
     assert autosub_server._client_ip(request) == "198.51.100.20"
 
 
-def test_client_ip_falls_back_safely_for_malformed_headers(monkeypatch):
+def test_client_ip_falls_back_safely_for_malformed_headers(monkeypatch, caplog):
     monkeypatch.setattr(
         autosub_server,
         "env_get",
-        lambda key, default="": "127.0.0.1/32,bad-network" if key == "AUTOSUB_TRUSTED_PROXIES" else default,
+        lambda key, default="": "127.0.0.1/32" if key == "AUTOSUB_TRUSTED_PROXIES" else default,
     )
     request = _request(
         "127.0.0.1",
@@ -72,13 +74,30 @@ def test_client_ip_falls_back_safely_for_malformed_headers(monkeypatch):
 
     assert autosub_server._client_ip(request) == "127.0.0.1"
     assert autosub_server._client_ip(_request()) == "unknown"
+    assert "Malformed forwarded client address" in caplog.text
+    assert "not-an-ip" not in caplog.text
+    assert "also-not-an-ip" not in caplog.text
 
 
 def test_lifespan_closes_http_client_and_storage(monkeypatch, tmp_path):
     fake_storage = AsyncMock()
-    close_api = AsyncMock()
+    fake_manager = AsyncMock()
+    fake_cache = AsyncMock()
+    close_order = []
+    def close_cache():
+        assert autosub_server.app.state.ready is False
+        close_order.append("cache")
+
+    fake_cache.close.side_effect = close_cache
+    fake_manager.close.side_effect = lambda: close_order.append("http")
+    fake_storage.close.side_effect = lambda: close_order.append("storage")
     monkeypatch.setattr(autosub_server, "storage", fake_storage)
-    monkeypatch.setattr(autosub_server, "close_xui_api", close_api)
+    monkeypatch.setattr(
+        autosub_server,
+        "HttpClientManager",
+        lambda env_getter: fake_manager,
+    )
+    monkeypatch.setattr(autosub_server, "SubscriptionCache", lambda: fake_cache)
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
 
@@ -89,22 +108,75 @@ def test_lifespan_closes_http_client_and_storage(monkeypatch, tmp_path):
     asyncio.run(exercise())
 
     fake_storage.connect.assert_awaited_once()
-    close_api.assert_awaited_once()
+    fake_manager.start.assert_awaited_once()
+    fake_cache.close.assert_awaited_once()
+    fake_manager.close.assert_awaited_once()
     fake_storage.close.assert_awaited_once()
+    assert close_order == ["cache", "http", "storage"]
+    assert autosub_server.app.state.ready is False
+
+
+def test_lifespan_config_failure_never_becomes_ready_and_closes_resources(
+    monkeypatch, tmp_path
+):
+    malformed = tmp_path / "config.json"
+    malformed.write_text("{broken", encoding="utf-8")
+    fake_storage = AsyncMock()
+    fake_manager = AsyncMock()
+    fake_cache = AsyncMock()
+    monkeypatch.setattr(autosub_server, "storage", fake_storage)
+    monkeypatch.setattr(autosub_server, "HttpClientManager", lambda env_getter: fake_manager)
+    monkeypatch.setattr(autosub_server, "SubscriptionCache", lambda: fake_cache)
+    monkeypatch.setattr(autosub_server, "CONFIG_PATH", malformed)
+    monkeypatch.setattr(config, "CONFIG_PATH", malformed)
+    monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
+    monkeypatch.setattr(config, "ensure_app_dir", lambda: None)
+    monkeypatch.setattr(autosub_server, "env_get", lambda key, default="": default)
+
+    async def exercise():
+        with pytest.raises(config.LegacyConfigError):
+            async with autosub_server.lifespan(autosub_server.app):
+                raise AssertionError("lifespan must not yield after config failure")
+
+    asyncio.run(exercise())
+
+    assert autosub_server.app.state.ready is False
+    fake_storage.connect.assert_awaited_once()
+    fake_storage.migrate_from_config.assert_not_awaited()
+    fake_cache.close.assert_awaited_once()
+    fake_manager.close.assert_awaited_once()
+    fake_storage.close.assert_awaited_once()
+
+
+def test_readiness_is_private_and_false_before_startup():
+    autosub_server.app.state.ready = False
+    request = _request()
+    request.scope["app"] = autosub_server.app
+
+    response = asyncio.run(autosub_server.readiness(request))
+
+    assert response.status_code == 503
+    assert response.body == b'{"status":"not_ready"}'
 
 
 @pytest.fixture
 def http_client(monkeypatch, tmp_path):
     fake_storage = AsyncMock()
     monkeypatch.setattr(autosub_server, "storage", fake_storage)
-    monkeypatch.setattr(autosub_server, "close_xui_api", AsyncMock())
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)
     monkeypatch.setattr(autosub_server, "env_get", lambda key, default="": default)
-    autosub_server._csrf_tokens.clear()
-    autosub_server._ip_requests.clear()
     with TestClient(autosub_server.app) as client:
         yield client, fake_storage
+
+
+def test_readiness_reflects_completed_lifespan(http_client):
+    client, _ = http_client
+
+    response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
 
 
 def test_admin_basic_auth(http_client, monkeypatch):
@@ -125,24 +197,22 @@ def test_admin_basic_auth(http_client, monkeypatch):
     assert response.status_code == 200
 
 
-def test_admin_save_requires_one_time_csrf(http_client, monkeypatch):
+def test_admin_save_requires_reusable_csrf(http_client, monkeypatch):
     client, _ = http_client
     save = AsyncMock()
     monkeypatch.setattr(autosub_server, "save_admin_form", save)
 
     missing = client.post("/admin/save", data={}, follow_redirects=False)
-    assert missing.status_code == 303
+    assert missing.status_code == 403
     save.assert_not_awaited()
 
-    expired_token = autosub_server._generate_csrf_token()
-    autosub_server._csrf_tokens[expired_token] = 0
-    expired = client.post(
-        "/admin/save", data={"_csrf": expired_token}, follow_redirects=False
+    invalid = client.post(
+        "/admin/save", data={"_csrf": "invalid"}, follow_redirects=False
     )
-    assert expired.status_code == 303
+    assert invalid.status_code == 403
     save.assert_not_awaited()
 
-    token = autosub_server._generate_csrf_token()
+    token = client.app.state.csrf_manager.generate()
     valid = client.post(
         "/admin/save", data={"_csrf": token}, follow_redirects=False
     )
@@ -153,7 +223,7 @@ def test_admin_save_requires_one_time_csrf(http_client, monkeypatch):
         "/admin/save", data={"_csrf": token}, follow_redirects=False
     )
     assert reused.status_code == 303
-    assert save.await_count == 1
+    assert save.await_count == 2
 
 
 def test_empty_http_subscription_and_rate_limit(http_client, monkeypatch):
@@ -163,8 +233,11 @@ def test_empty_http_subscription_and_rate_limit(http_client, monkeypatch):
     monkeypatch.setattr(
         autosub_server, "resolve_security_flags", AsyncMock(return_value={})
     )
-    monkeypatch.setattr(autosub_server, "_client_ip", lambda request: "192.0.2.10")
-    monkeypatch.setattr(autosub_server, "RATE_LIMIT_MAX_REQUESTS", 1)
+    monkeypatch.setattr(
+        autosub_server,
+        "PUBLIC_RATE_LIMIT",
+        RateLimitPolicy("server-test", 1, 60),
+    )
 
     first = client.get("/json/empty")
     second = client.get("/json/empty")

@@ -1,13 +1,46 @@
 # AutoSub Server
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+## Финальная эксплуатационная модель
+
+Production использует root-managed layout `/opt/autosub-server/{releases,current,shared}`
+и Python 3.10+. Fresh install генерирует отдельные `AUTOSUB_SECRET_KEY` и
+`AUTOSUB_ADMIN_PASSWORD`, сохраняет `.env` с mode `0600` и не перезаписывает existing
+shared data при повторном запуске.
+
+Legacy `shared/config.json` импортируется один раз. Существующий файл сначала строго
+декодируется как UTF-8 JSON, затем проверяется его минимальная структура; все записи и
+DB-marker `config_migrated=1` фиксируются одной транзакцией, причём marker записывается
+последним после проверки результата. Повреждённый config останавливает startup без
+marker и частичных записей: после исправления следующий запуск повторит import.
+Исходный файл остаётся в `shared/`.
+
+Проверенные operator commands:
+
+```bash
+systemctl status autosub-server --no-pager
+journalctl -u autosub-server -f
+systemctl restart autosub-server
+/opt/autosub-server/update.sh
+curl --fail http://127.0.0.1:25500/health/ready
+readlink /opt/autosub-server/current
+find /opt/autosub-server/releases -mindepth 1 -maxdepth 1 -type d -printf '%f\n'
+find /opt/autosub-server/shared/backups -maxdepth 1 -type f -printf '%f\n'
+```
+
+Автоматический DB restore после обычного systemd restart не выполняется: verified
+backup сохраняется для fail-closed/manual recovery, чтобы rollback не стирал записи,
+которые могли появиться после открытия трафика.
 
 **AutoSub Server** — это локальный прокси-сервер JSON-подписок для панели **3x-ui**.
 
 Он перехватывает запросы `/json/<subId>` и `/sub/<subId>` с внешнего порта прокси, получает оригинальную JSON-подписку от 3x-ui, генерирует и добавляет разрешенные профили автоматического выбора нод (Autoselect / LeastPing) в начало списка и возвращает оригинальные ноды без изменений после них.
 
-Для старых ссылок `/sub/<subId>` сервер автоматически различает запросы: веб-браузерам отображает красивую родную HTML-страницу 3x-ui (со статистикой трафика и кнопками), а VPN-клиентам отдает обновленную JSON-подписку с автовыбором.
+Для старых ссылок `/sub/<subId>` сервер автоматически различает запросы: браузерам
+показывает безопасную локальную страницу AutoSub, а VPN-клиентам отдаёт обновлённую
+JSON-подписку с автовыбором. Недоверенный HTML 3x-ui не проксируется в origin AutoSub.
 
 > [English documentation is available in [README_EN.md](README_EN.md).]
 
@@ -33,6 +66,7 @@
 - [Панель управления (Dashboard)](#-панель-управления-dashboard)
 - [Настройка Nginx](#-настройка-nginx)
 - [Обновление](#-обновление)
+- [Разработка и зависимости](#-разработка-и-воспроизводимые-зависимости)
 - [Устранение неполадок](#-устранение-неполадок)
 
 ---
@@ -94,12 +128,12 @@ curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/dev/install.
 
 2. **Клонирование репозитория:**
    ```bash
-   git clone https://github.com/amirim1/autosub-server.git /opt/autosub-server
-   cd /opt/autosub-server
+   git clone https://github.com/amirim1/autosub-server.git /tmp/autosub-server-src
+   cd /tmp/autosub-server-src
    ```
 
 3. **Запуск скрипта установки:**
-   Этот скрипт создаст виртуальное окружение, установит Python-зависимости (Aiohttp и др.) и настроит системный сервис `systemd`.
+   Этот скрипт создаст виртуальное окружение, установит зафиксированные Python-зависимости и настроит системный сервис `systemd`.
    ```bash
    bash install.sh
    ```
@@ -113,9 +147,9 @@ curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/dev/install.
 ### Шаг 1: Подключение к 3x-ui (.env)
 Откройте файл конфигурации:
 ```bash
-nano /opt/autosub-server/.env
+nano /opt/autosub-server/shared/.env
 ```
-Укажите данные для подключения к вашей панели 3x-ui (потребуется `XUI_SUB_URL`, `XUI_API_URL` и либо логин/пароль, либо `XUI_API_TOKEN`). Задайте `AUTOSUB_ADMIN_PASSWORD` для защиты админ-панели AutoSub.
+Укажите данные для подключения к вашей панели 3x-ui (потребуется `XUI_SUB_URL`, `XUI_API_URL` и либо логин/пароль, либо `XUI_API_TOKEN`). Для админ-панели задайте `AUTOSUB_ADMIN_USERNAME` и надежный `AUTOSUB_ADMIN_PASSWORD`. После обновления сохраненный в браузере username должен совпадать с настроенным значением (по умолчанию `admin`).
 После сохранения перезапустите сервис:
 ```bash
 systemctl restart autosub-server
@@ -125,7 +159,7 @@ systemctl restart autosub-server
 AutoSub работает локально на порту `25500`. Чтобы ваши клиенты могли скачивать подписки, нужно настроить Nginx.
 Запустите скрипт автонастройки (замените домен и порт на ваши):
 ```bash
-bash /opt/autosub-server/setup_nginx.sh sub.your-domain.com 2097
+bash /opt/autosub-server/current/setup_nginx.sh sub.your-domain.com 2097
 ```
 *(Либо настройте Nginx вручную, пример конфигурации лежит в `nginx-example.conf`)*
 
@@ -147,17 +181,22 @@ bash /opt/autosub-server/setup_nginx.sh sub.your-domain.com 2097
 
 ## ⚙️ Конфигурация (.env)
 
-Файл параметров расположен по адресу `/opt/autosub-server/.env`:
+Файл параметров расположен по адресу `/opt/autosub-server/shared/.env`:
 
 ```env
 AUTOSUB_HOST=127.0.0.1
 AUTOSUB_PORT=25500
 
-# Доверенные reverse-proxy (IP/CIDR через запятую). Только от них принимаются X-Real-IP/X-Forwarded-For
+# Доверенные reverse-proxy (IP/CIDR через запятую). Только от них принимаются X-Real-IP/X-Forwarded-For.
+# Пустое значение отключает доверие; ошибочная или глобальная сеть останавливает startup.
 AUTOSUB_TRUSTED_PROXIES=127.0.0.1/32,::1/128
 
-# Пароль для доступа к админ-панели /admin (оставьте пустым для отключения авторизации)
-AUTOSUB_ADMIN_PASSWORD=your_secure_admin_password
+# Basic Auth для админ-панели /admin. Обязательно замените примерный пароль.
+AUTOSUB_ADMIN_USERNAME=admin
+AUTOSUB_ADMIN_PASSWORD=change-me
+
+# HMAC-ключ CSRF. На новой установке install.sh генерирует его автоматически.
+AUTOSUB_SECRET_KEY=replace-with-a-random-secret
 
 # Адрес оригинальной JSON-подписки 3x-ui
 XUI_SUB_URL=https://sub.your-domain.com:2096
@@ -171,7 +210,7 @@ XUI_API_TOKEN=
 # Резервный URL 3x-ui
 XUI_URL=https://sub.your-domain.com:2096
 
-# Проверка TLS-сертификатов (true/false)
+# Проверка TLS-сертификата API-панели 3x-ui (true/false)
 XUI_TLS_VERIFY=true
 
 # Логин и пароль 3x-ui (если не используется API-токен)
@@ -182,17 +221,124 @@ XUI_PASSWORD=change_me
 # SUB_TITLE=Мой VPN
 ```
 
+### Управляемые HTTP-клиенты
+
+AutoSub создаёт HTTP-клиенты при запуске приложения, переиспользует их connection
+pool и закрывает при shutdown. Публичные upstream-запросы используют stateless pool,
+а сессии 3x-ui изолированы по адресу панели и credentials; одновременно хранится не
+более 16 неактивных/активных panel clients.
+
+Заданы отдельные connect/read/write/pool timeouts: `5/20/10/5` секунд для API
+панели и `5/30/10/5` секунд для подписок. Pool ограничен 20 соединениями, 10
+keep-alive соединениями и expiry 30 секунд. Ответы ограничены 4 MiB для JSON API,
+8 MiB для подписки и 1 MiB для HTML входа в API-панель. Redirects автоматически не выполняются.
+
+TLS-сертификаты проверяются по умолчанию. `XUI_TLS_VERIFY=false` применяется только
+к соответствующей self-signed API-панели и не отключает проверку для публичного
+upstream pool. Режим снижает защиту от перехвата; используйте его только в доверенной
+сети. Пользовательская установка и существующие URL маршрутов не меняются.
+
+### Кэш готовых подписок
+
+Публичные JSON-ответы кэшируются внутри одного процесса после полной сборки. Кэш
+использует монотонные часы, 30 секунд fresh TTL и ещё 300 секунд stale-if-error,
+ограничен 256 LRU-записями и 256 KiB UTF-8 payload на запись. Таким образом,
+верхняя оценка хранимой полезной нагрузки — около 64 MiB; фактическое потребление
+выше из-за объектов Python и заголовков.
+
+Одновременные запросы одного ключа объединяются в одну сборку, а разные ключи
+собираются параллельно. Stale-ответ выдаётся только при временной сетевой ошибке
+или HTTP 5xx upstream. Ключи содержат SHA-256 хэши, а успешные изменения через
+админ-панель переключают поколение кэша. Локальная HTML-страница использует этот
+кэш только для проверки готовности JSON, но её HTML и request ID не кэшируются;
+admin preview кэш обходит.
+Кэш локален для одного Uvicorn-процесса; Redis для штатного однопроцессного
+развёртывания не требуется.
+
+### Представления подписки
+
+`/json/{sub_id}` всегда возвращает generated JSON независимо от `Accept` и
+User-Agent. Legacy `/sub/{sub_id}` поддерживает `?format=json` и `?format=html`;
+явный формат имеет приоритет над `Accept`, затем учитываются `application/json`,
+`text/plain` и `text/html` с `q=` weights. `*/*`, отсутствующий `Accept` и неизвестный
+клиент безопасно получают JSON, кроме обычного browser fallback по Mozilla UA.
+
+HTML создаётся локальным Jinja-template с autoescape, строгой CSP, локальным CSS,
+`Referrer-Policy: no-referrer` и `Cache-Control: no-store`. Upstream HTML, redirects,
+credentials и panel URL не вставляются в страницу. Отдельного raw/base64 формата
+AutoSub не предоставляет; machine representation остаётся совместимым JSON.
+CSS доступен по `/sub/_assets/subscription.css`, поэтому существующий Nginx location
+`/sub/` не требует расширения и не открывает admin assets.
+
+### Ограничение частоты запросов
+
+Process-local sliding-window limiter хранит не более 4096 LRU buckets и удаляет
+неактивные buckets через 20 минут. Действуют отдельные лимиты на IP: 60 запросов
+в минуту для `/json/` и `/sub/`, 20 в минуту для admin authentication/read и 10
+в минуту для `preview`, `api-test` и `discover`. Ответ `429` содержит положительный
+`Retry-After`, `X-Request-ID` и `Cache-Control: no-store`.
+
+Forwarded-заголовки учитываются только когда непосредственный peer входит в
+`AUTOSUB_TRUSTED_PROXIES`; цепочка `X-Forwarded-For` разбирается справа налево.
+Прямой клиент не может подменить свой bucket через spoofed header. Пустой allowlist
+полностью отключает доверие forwarded headers, а невалидная или global сеть
+останавливает startup. При нескольких Uvicorn workers каждый процесс имеет свой
+limiter, поэтому суммарный предел масштабируется с числом workers. Redis не нужен
+для штатного однопроцессного deployment за локальным Nginx.
+
 ---
 
 ## 📊 Панель управления (Dashboard)
 
-Админ-панель работает локально для безопасности. Для подключения используйте SSH-туннель:
+Админ-панель по умолчанию работает локально. Пустой или состоящий только из пробелов `AUTOSUB_ADMIN_PASSWORD` разрешен исключительно при `AUTOSUB_HOST=127.0.0.1`, `::1` или `localhost`. При `0.0.0.0`, `::`, LAN-адресе или hostname приложение откажется запускаться без пароля.
+
+`AUTOSUB_SECRET_KEY` подписывает stateless CSRF-токены. Для существующей
+установки создайте ключ командой:
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Сохраните его в `/opt/autosub-server/shared/.env`. Без ключа допустим только
+временный process-secret на loopback bind; non-loopback startup требует
+ключ длиной не менее 32 символов.
+
+Рекомендуется оставлять dashboard за SSH-туннелем, VPN или защищенным reverse proxy. Basic Auth без HTTPS не шифрует credentials и не защищает их от перехвата. Для подключения через SSH-туннель:
 
 ```bash
 ssh -L 25500:127.0.0.1:25500 root@YOUR_SERVER_IP
 ```
 
 После создания туннеля откройте в браузере: `http://127.0.0.1:25500/admin`
+
+### Диагностика и безопасные HTTP-ответы
+
+Каждый ответ AutoSub содержит `X-Request-ID`. Тот же идентификатор добавляется в
+связанные записи `autosub.log` и journald, поэтому его можно использовать для поиска
+ошибки без публикации внутренних деталей. Subscription ID журналируются только как
+необратимые fingerprints, а email маскируются. Ответы также получают базовые security
+headers; административные страницы используют `Cache-Control: no-store`.
+
+Все управляемые AutoSub файлы находятся внутри `/opt/autosub-server`. Код и отдельный
+`venv` каждой версии живут в `releases/<id>/`, атомарная относительная ссылка
+`current` выбирает активную версию, а `.env`, SQLite, config, лог и резервные копии
+живут в `shared/`. Systemd управляется root и запускает сервис без отдельного Unix
+пользователя; файлы и updater должны оставаться root-owned и недоступными для записи
+непривилегированным пользователям.
+
+### Миграции SQLite и резервные копии
+
+Перед фактическим повышением версии схемы AutoSub создаёт консистентную копию
+`data.db` через SQLite backup API в `/opt/autosub-server/shared/backups/`. Для новой
+или уже актуальной базы копия не создаётся. Ошибка проверки целостности, создания
+backup или миграции останавливает startup; изменение схемы и её версии откатывается.
+
+Updater также создаёт `pre-update-*.db` до атомарного switch. Обычный systemd restart
+может открыть публичный порт до того, как updater увидит readiness, поэтому при failed
+activation код автоматически откатывается, а БД автоматически не восстанавливается:
+это могло бы стереть уже принятые записи. Путь backup выводится оператору для
+fail-closed/manual recovery. Автоматический restore helper разрешён только для явно
+изолированной pre-traffic фазы при остановленном сервисе.
 
 ### Приоритет назначения групп клиентам:
 
@@ -207,12 +353,12 @@ ssh -L 25500:127.0.0.1:25500 root@YOUR_SERVER_IP
 ### Автоматическая настройка
 
 ```bash
-bash /opt/autosub-server/setup_nginx.sh sub.your-domain.com 2097
+bash /opt/autosub-server/current/setup_nginx.sh sub.your-domain.com 2097
 ```
 
 ### Ручная настройка
 
-Скопируйте пример конфигурационного файла `/opt/autosub-server/nginx-example.conf`:
+Скопируйте пример из `/opt/autosub-server/current/nginx-example.conf`:
 
 ```nginx
 server {
@@ -231,7 +377,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # Legacy Base64 subscription URLs (serves HTML to web browsers, JSON to VPN apps)
+    # Legacy URLs (serves local AutoSub HTML to browsers, JSON to VPN apps)
     location /sub/ {
         proxy_pass http://127.0.0.1:25500/sub/;
         proxy_set_header Host $host;
@@ -266,7 +412,59 @@ systemctl reload nginx
 curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/update.sh | bash
 ```
 
-При обновлении создается автоматическая резервная копия базы данных и конфигурации в `/opt/autosub-server-backups/`.
+Updater берёт неблокирующий `flock` на `/opt/autosub-server/.update.lock`, готовит
+`releases/.staging-<id>-*` и release-local `venv`, проверяет imports/assets, создаёт
+SQLite backup, затем атомарно переключает `current` и опрашивает
+`http://127.0.0.1:25500/health/ready` до 45 секунд. При ошибке он возвращает код на
+предыдущий release и проверяет `/health`. После успеха сохраняются три последних
+release, при этом current и непосредственная rollback-цель защищены. Backups живут в
+`/opt/autosub-server/shared/backups/` и не участвуют в release retention.
+Атомарный `.update-state.json` сохраняет настоящую rollback-цель: следующий запуск
+завершит прерванный rollback, даже если interruption произошёл сразу после switch.
+
+Legacy flat install мигрируется один раз без раннего удаления исходных файлов:
+`.env`, `config.json`, log и консистентная SQLite-копия переходят в `shared`, а
+предыдущий код получает отдельный rollback release/venv. Загрузка выполняется exact
+Git ref через HTTPS без fallback на другую ветку. Отдельные подписанные checksum
+metadata проект пока не публикует; это остаётся ограничением authenticity.
+
+---
+
+## 🧰 Разработка и воспроизводимые зависимости
+
+Поддерживается Python 3.10 и новее. Установка production-зависимостей из lock-файла:
+
+```bash
+python -m pip install --require-hashes -r requirements.txt
+```
+
+Для разработки используйте отдельное виртуальное окружение и dev lock:
+
+```bash
+python -m venv .venv
+python -m pip install --require-hashes -r requirements-dev.txt
+```
+
+Основные проверки:
+
+```bash
+pytest
+pytest --cov=. --cov-report=term-missing --cov-fail-under=55
+ruff check .
+ruff format --check .
+pyright
+pip-audit -r requirements.txt --require-hashes
+bandit -c pyproject.toml -r . -x tests -ll
+```
+
+`ruff format --check .` пока является диагностической локальной проверкой: существующий код еще не имеет единого formatter baseline, поэтому CI не запускает ее до отдельного форматирующего PR.
+
+После изменения `requirements.in` или `requirements-dev.in` пересоберите оба lock-файла из чистого dev-окружения:
+
+```bash
+python -m piptools compile --upgrade --generate-hashes --resolver=backtracking --strip-extras --no-emit-index-url --output-file=requirements.txt requirements.in
+python -m piptools compile --upgrade --generate-hashes --resolver=backtracking --strip-extras --no-emit-index-url --allow-unsafe --output-file=requirements-dev.txt requirements-dev.in
+```
 
 ---
 

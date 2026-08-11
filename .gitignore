@@ -5,3 +5,10 @@ __pycache__/
 data.db
 *.log
 *.log.*
+.venv*/
+.coverage
+coverage.xml
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+.pyright/
