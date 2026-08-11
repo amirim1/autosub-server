@@ -2,6 +2,13 @@
 
 All notable changes to AutoSub Server will be documented in this file.
 
+## [v3.0.4] - 2026-08-11
+
+### Fixed
+- Made the installed `/opt/autosub-server/update.sh` ignore leftover legacy flat-layout
+  entrypoint files unless its directory is a complete release checkout with the release
+  manager and runtime manifest.
+
 ## [v3.0.3] - 2026-08-11
 
 ### Fixed

@@ -34,7 +34,9 @@ fi
 
 if [ -n "$SCRIPT_DIR" ] \
   && [ -f "$SCRIPT_DIR/update.sh" ] \
-  && [ -f "$SCRIPT_DIR/autosub_server.py" ]; then
+  && [ -f "$SCRIPT_DIR/autosub_server.py" ] \
+  && [ -f "$SCRIPT_DIR/release_manager.py" ] \
+  && [ -f "$SCRIPT_DIR/runtime-manifest.txt" ]; then
   AUTOSUB_SOURCE_DIR="$SCRIPT_DIR" bash "$SCRIPT_DIR/update.sh"
   exit $?
 fi
