@@ -446,7 +446,19 @@ class ReleaseLayout:
         return removed
 
 
-def prepare_release_venv(release: Path, python: str, root: Path) -> None:
+def prepare_release_venv(
+    release: Path,
+    python: str,
+    root: Path,
+    requirements_lock: Path | None = None,
+) -> None:
+    requirements = release / "requirements.txt"
+    if requirements_lock is not None:
+        lock_source = Path(requirements_lock)
+        if not lock_source.is_file() or lock_source.is_symlink():
+            raise ReleaseError("requirements lock source is not a regular file")
+        if lock_source.resolve() != requirements.resolve():
+            shutil.copy2(lock_source, requirements)
     subprocess.run([python, "-m", "venv", str(release / "venv")], check=True)
     venv_python = release / "venv" / "bin" / "python"
     subprocess.run(
@@ -457,7 +469,7 @@ def prepare_release_venv(release: Path, python: str, root: Path) -> None:
             "install",
             "--require-hashes",
             "-r",
-            str(release / "requirements.txt"),
+            str(requirements),
         ],
         check=True,
     )
@@ -827,6 +839,7 @@ def _parser() -> argparse.ArgumentParser:
     prepare.add_argument("release")
     prepare.add_argument("--python", default="python3")
     prepare.add_argument("--allow-missing", action="store_true")
+    prepare.add_argument("--requirements-lock", type=Path)
     current = commands.add_parser("current")
     current.add_argument("root", type=Path)
     current.add_argument("--optional", action="store_true")
@@ -873,7 +886,12 @@ def main(argv: list[str] | None = None) -> int:
                 args.source,
                 args.manifest,
                 args.release,
-                prepare_venv=lambda path: prepare_release_venv(path, args.python, args.root),
+                prepare_venv=lambda path: prepare_release_venv(
+                    path,
+                    args.python,
+                    args.root,
+                    args.requirements_lock,
+                ),
                 allow_missing=args.allow_missing,
             )
             print(release)

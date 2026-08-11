@@ -214,7 +214,8 @@ if [ "$LEGACY_LAYOUT" -eq 1 ]; then
   LEGACY_ID="$("$PYTHON" "$MANAGER" legacy-id "$APP_DIR")"
   "$PYTHON" "$MANAGER" prepare \
     "$APP_DIR" "$APP_DIR" "$MANIFEST" "$LEGACY_ID" \
-    --python "$PYTHON" --allow-missing
+    --python "$PYTHON" --allow-missing \
+    --requirements-lock "$SRC_DIR/requirements.txt"
 
   UNIT_BACKUP="$APP_DIR/shared/backups/autosub-server.service-pre-layout"
   if [ -f "$SERVICE_UNIT" ] && [ ! -f "$UNIT_BACKUP" ]; then
