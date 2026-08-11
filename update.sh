@@ -10,7 +10,11 @@ HEALTH_PORT="${AUTOSUB_PORT:-}"
 HEALTH_TIMEOUT="${AUTOSUB_HEALTH_TIMEOUT:-45}"
 KEEP_RELEASES="${AUTOSUB_KEEP_RELEASES:-3}"
 MIN_FREE_KB="${AUTOSUB_MIN_FREE_KB:-524288}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+SCRIPT_SOURCE="${BASH_SOURCE[0]:-}"
+SCRIPT_DIR=""
+if [ -n "$SCRIPT_SOURCE" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" 2>/dev/null && pwd)"
+fi
 TMP_DIR=""
 
 cleanup() {
@@ -53,7 +57,7 @@ resolve_source() {
     SRC_DIR="$AUTOSUB_SOURCE_DIR"
     return
   fi
-  if [ -f "$SCRIPT_DIR/autosub_server.py" ]; then
+  if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/autosub_server.py" ]; then
     SRC_DIR="$SCRIPT_DIR"
     return
   fi
