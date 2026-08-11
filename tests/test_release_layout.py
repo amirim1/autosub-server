@@ -332,7 +332,9 @@ def test_systemd_and_manifest_contracts():
     assert "AUTOSUB_ADMIN_PASSWORD={admin_password}" in updater
     assert 'if [ ! -f "$APP_DIR/shared/.env" ]' in updater
     assert 'if [ ! -f "$APP_DIR/shared/config.json" ]' in updater
-    assert 'install -d -m 700 "$APP_DIR"' in updater
-    assert '"$APP_DIR/shared"' in updater
+    assert (
+        "install -d -m 700 \\\n"
+        '  "$APP_DIR" "$APP_DIR/releases" "$APP_DIR/shared" "$APP_DIR/shared/backups"' in updater
+    )
     assert 'chmod 600 "$APP_DIR/shared/.env" "$APP_DIR/shared/config.json"' in updater
     assert 'rm -rf -- "$APP_DIR/shared"' not in updater
