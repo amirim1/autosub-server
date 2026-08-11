@@ -235,9 +235,15 @@ class HttpClientManager:
                     if size > max_bytes:
                         raise UpstreamResponseTooLargeError("upstream response is too large")
                     chunks.append(chunk)
+                decoded_headers = [
+                    (name, value)
+                    for name, value in response.headers.multi_items()
+                    if name.lower()
+                    not in {"content-encoding", "content-length", "transfer-encoding"}
+                ]
                 return httpx.Response(
                     response.status_code,
-                    headers=response.headers,
+                    headers=decoded_headers,
                     content=b"".join(chunks),
                     request=response.request,
                 )

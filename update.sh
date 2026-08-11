@@ -58,7 +58,10 @@ resolve_source() {
     SRC_DIR="$AUTOSUB_SOURCE_DIR"
     return
   fi
-  if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/autosub_server.py" ]; then
+  if [ -n "$SCRIPT_DIR" ] \
+    && [ -f "$SCRIPT_DIR/autosub_server.py" ] \
+    && [ -f "$SCRIPT_DIR/release_manager.py" ] \
+    && [ -f "$SCRIPT_DIR/runtime-manifest.txt" ]; then
     SRC_DIR="$SCRIPT_DIR"
     return
   fi
