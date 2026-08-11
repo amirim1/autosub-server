@@ -2,7 +2,11 @@
 set -euo pipefail
 umask 077
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+SCRIPT_SOURCE="${BASH_SOURCE[0]:-}"
+SCRIPT_DIR=""
+if [ -n "$SCRIPT_SOURCE" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" 2>/dev/null && pwd)"
+fi
 APP_DIR="${AUTOSUB_ROOT:-/opt/autosub-server}"
 TMP_DIR=""
 
@@ -28,7 +32,9 @@ if [ "$(uname -s)" != "Linux" ]; then
   fail "Linux is required"
 fi
 
-if [ -f "$SCRIPT_DIR/update.sh" ] && [ -f "$SCRIPT_DIR/autosub_server.py" ]; then
+if [ -n "$SCRIPT_DIR" ] \
+  && [ -f "$SCRIPT_DIR/update.sh" ] \
+  && [ -f "$SCRIPT_DIR/autosub_server.py" ]; then
   AUTOSUB_SOURCE_DIR="$SCRIPT_DIR" bash "$SCRIPT_DIR/update.sh"
   exit $?
 fi

@@ -2,6 +2,13 @@
 
 All notable changes to AutoSub Server will be documented in this file.
 
+## [v3.0.1] - 2026-08-11
+
+### Fixed
+- Restored the documented `curl | bash` install and update entry points by treating
+  stdin execution as having no local source directory and fetching the exact requested
+  release instead of reusing an unrelated current working directory.
+
 ## [v3.0.0] - 2026-08-11
 
 ### Security
