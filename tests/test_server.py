@@ -159,6 +159,16 @@ def test_readiness_is_private_and_false_before_startup():
     assert response.body == b'{"status":"not_ready"}'
 
 
+def test_liveness_is_independent_of_readiness(http_client):
+    client, _ = http_client
+    autosub_server.app.state.ready = False
+
+    response = client.get("/health/live")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "alive"}
+
+
 @pytest.fixture
 def http_client(monkeypatch, tmp_path):
     fake_storage = AsyncMock()

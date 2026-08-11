@@ -24,6 +24,7 @@ systemctl status autosub-server --no-pager
 journalctl -u autosub-server -f
 systemctl restart autosub-server
 /opt/autosub-server/update.sh
+curl --fail http://127.0.0.1:25500/health/live
 curl --fail http://127.0.0.1:25500/health/ready
 readlink /opt/autosub-server/current
 find /opt/autosub-server/releases -mindepth 1 -maxdepth 1 -type d -printf '%f\n'

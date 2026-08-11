@@ -2,6 +2,12 @@
 
 All notable changes to AutoSub Server will be documented in this file.
 
+## [v3.0.3] - 2026-08-11
+
+### Fixed
+- Added the missing `/health/live` endpoint promised by the operations contract.
+- Enforced mode `0700` on the shared runtime directory during every update.
+
 ## [v3.0.2] - 2026-08-11
 
 ### Fixed
