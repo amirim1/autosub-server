@@ -2,7 +2,7 @@ import copy
 import json
 import time
 
-from api_client import get_xui_api, fetch_original_subscription, normalize_subscription
+from api_client import fetch_original_subscription, normalize_subscription
 from config import env_get
 from fingerprint import (
     canonical_node_id,
@@ -14,6 +14,7 @@ from fingerprint import (
     unique_tag,
 )
 from logger import log
+from logging_utils import fingerprint_secret, mask_email
 
 
 def allowed_autoselect_ids(groups, group_rules):
@@ -236,30 +237,33 @@ def _sub_headers(resp_headers):
     return h
 
 
-async def build_for_subscription(sub_id, storage, query=""):
+async def build_for_subscription(sub_id, storage, query="", http_manager=None):
+    sub_ref = fingerprint_secret(sub_id)
     cfg_probe_url, cfg_probe_interval = await storage.get_probe_config()
 
     try:
-        original_text, content_type, resp_headers = await fetch_original_subscription(sub_id, query=query)
+        original_text, content_type, resp_headers = await fetch_original_subscription(
+            sub_id, query=query, client_manager=http_manager
+        )
     except Exception as exc:
-        log(f"{sub_id}: failed to fetch upstream subscription: {exc}")
-        raise RuntimeError(f"Failed to fetch upstream subscription for {sub_id}: {exc}") from exc
+        log(f"sub_id_hash={sub_ref}: failed to fetch upstream subscription")
+        raise RuntimeError("Failed to fetch upstream subscription") from exc
 
     try:
         profiles = normalize_subscription(original_text)
     except Exception as exc:
-        log(f"{sub_id}: failed to parse upstream subscription: {exc}")
-        raise RuntimeError(f"Failed to parse upstream subscription for {sub_id}: {exc}") from exc
+        log(f"sub_id_hash={sub_ref}: failed to parse upstream subscription")
+        raise RuntimeError("Failed to parse upstream subscription") from exc
 
     if not profiles:
-        log(f"{sub_id}: upstream subscription is an empty profile list, passthrough original")
+        log(f"sub_id_hash={sub_ref}: upstream subscription is an empty profile list, passthrough original")
         return original_text, content_type, _sub_headers(resp_headers)
 
     sub_title_env = env_get("SUB_TITLE", "")
     sub_userinfo_env = env_get("SUB_USERINFO", "")
 
     sub_headers = _sub_headers(resp_headers)
-    client = await resolve_client(sub_id, storage)
+    client = await resolve_client(sub_id, storage, http_manager=http_manager)
 
     if sub_title_env:
         sub_headers["Profile-Title"] = sub_title_env
@@ -273,25 +277,28 @@ async def build_for_subscription(sub_id, storage, query=""):
         sub_headers["Subscription-Userinfo"] = sub_userinfo_env
 
     if not client:
-        log(f"{sub_id}: client not found, passthrough original")
+        log(f"sub_id_hash={sub_ref}: client not found, passthrough original")
         return original_text, content_type, sub_headers
 
     groups = client.get("groups") or []
-    log(f"{sub_id}: resolved client email={client.get('email')} groups={groups} source={client.get('source')}")
+    log(
+        f"sub_id_hash={sub_ref}: resolved client email={mask_email(client.get('email'))} "
+        f"groups={groups} source={client.get('source')}"
+    )
 
     if not groups:
-        log(f"{sub_id}: client has no groups, passthrough original")
+        log(f"sub_id_hash={sub_ref}: client has no groups, passthrough original")
         return original_text, content_type, sub_headers
 
     group_rules = await storage.get_group_rules()
     allowed_ids = allowed_autoselect_ids(groups, group_rules)
-    log(f"{sub_id}: groups={groups} rules_keys={list(group_rules.keys())} allowed_ids={allowed_ids}")
+    log(f"sub_id_hash={sub_ref}: groups={groups} rules_keys={list(group_rules.keys())} allowed_ids={allowed_ids}")
     if not allowed_ids:
-        log(f"{sub_id}: allowed_ids empty, passthrough")
+        log(f"sub_id_hash={sub_ref}: allowed_ids empty, passthrough")
         return original_text, content_type, sub_headers
 
     autoselects = await storage.get_autoselects()
-    log(f"{sub_id}: autoselects in db: {[(a['id'], a['selected_node_ids']) for a in autoselects]}")
+    log(f"sub_id_hash={sub_ref}: autoselects in db: {[(a['id'], a['selected_node_ids']) for a in autoselects]}")
     by_id = {a.get("id"): a for a in autoselects if a.get("enabled", True)}
 
     enriched = enrich_profiles(profiles)
@@ -332,24 +339,24 @@ async def build_for_subscription(sub_id, storage, query=""):
     for auto_id in allowed_ids:
         auto = by_id.get(auto_id)
         if not auto:
-            log(f"{sub_id}: autoselect '{auto_id}' not found or disabled in by_id (ids={list(by_id.keys())})")
+            log(f"sub_id_hash={sub_ref}: autoselect '{auto_id}' not found or disabled in by_id (ids={list(by_id.keys())})")
             continue
         sel = auto.get("selected_node_ids") or []
         tag_filter = auto.get("tag_filter") or []
         matched = match_profiles(remaining_enriched, sel, tag_filter)
-        log(f"{sub_id}: autoselect '{auto_id}' selected={sel} tag_filter={tag_filter} matched={len(matched)} profiles")
+        log(f"sub_id_hash={sub_ref}: autoselect '{auto_id}' selected={sel} tag_filter={tag_filter} matched={len(matched)} profiles")
         if not matched:
             tags_in_pool = set(str(p.get("_tag", "")) for p in remaining_enriched)
-            log(f"{sub_id}: pool tags={tags_in_pool}")
+            log(f"sub_id_hash={sub_ref}: pool tags={tags_in_pool}")
             continue
         generated = build_autoselect_profile(template, matched, auto, cfg_probe_url, cfg_probe_interval)
         if generated:
             auto_profiles.append(generated)
         else:
-            log(f"{sub_id}: autoselect '{auto_id}' build_autoselect_profile returned None")
+            log(f"sub_id_hash={sub_ref}: autoselect '{auto_id}' build_autoselect_profile returned None")
 
     if not auto_profiles:
-        log(f"{sub_id}: no autoselects matched (allowed_ids={allowed_ids} autoselects={len(autoselects)})")
+        log(f"sub_id_hash={sub_ref}: no autoselects matched (allowed_ids={allowed_ids} autoselects={len(autoselects)})")
         return original_text, content_type, sub_headers
 
     output = dummy_nodes + auto_profiles + remaining_profiles
@@ -494,12 +501,12 @@ async def build_for_subscription(sub_id, storage, query=""):
 
     cleaned_output = [_clean(p) for p in output]
 
-    email = client.get("email") or "client"
-    log(f"{sub_id}: generated {len(auto_profiles)} autoselects for {email}")
+    email = mask_email(client.get("email"))
+    log(f"sub_id_hash={sub_ref}: generated {len(auto_profiles)} autoselects for {email}")
     return json.dumps(cleaned_output, ensure_ascii=False, separators=(",", ":")), "application/json; charset=utf-8", sub_headers
 
 
-async def resolve_client(sub_id, storage):
+async def resolve_client(sub_id, storage, http_manager=None):
     """
     Resolve client with groups. Public API.
     Priority:
@@ -517,20 +524,21 @@ async def resolve_client(sub_id, storage):
         if key in overrides:
             return {"email": key, "sub_id": sub_id, "groups": overrides[key], "source": "override"}
 
-    try:
-        api = get_xui_api()
-        client = await api.find_client_by_sub_id(sub_id)
-        if client:
-            email = client.get("email") or ""
-            if email in overrides:
-                merged = list(dict.fromkeys(client.get("groups", []) + overrides[email]))
-                client["groups"] = merged
-                client["source"] = "api+override"
-            else:
-                client["source"] = "api"
-            return client
-    except Exception as exc:
-        log(f"{sub_id}: API fallback failed: {exc}")
+    if http_manager is not None:
+        try:
+            async with http_manager.panel_api() as api:
+                client = await api.find_client_by_sub_id(sub_id) if api else None
+                if client:
+                    email = client.get("email") or ""
+                    if email in overrides:
+                        merged = list(dict.fromkeys(client.get("groups", []) + overrides[email]))
+                        client["groups"] = merged
+                        client["source"] = "api+override"
+                    else:
+                        client["source"] = "api"
+                    return client
+        except Exception:
+            log(f"sub_id_hash={fingerprint_secret(sub_id)}: API fallback failed")
 
     if sub_id in overrides:
         return {"email": sub_id, "sub_id": sub_id, "groups": overrides[sub_id], "source": "override"}
@@ -538,8 +546,10 @@ async def resolve_client(sub_id, storage):
     return None
 
 
-async def discover_nodes_from_sub_id(sub_id):
-    text, _, _ = await fetch_original_subscription(sub_id)
+async def discover_nodes_from_sub_id(sub_id, http_manager=None):
+    text, _, _ = await fetch_original_subscription(
+        sub_id, client_manager=http_manager
+    )
     profiles = normalize_subscription(text)
     result = []
     for i, profile in enumerate(profiles):
@@ -549,9 +559,9 @@ async def discover_nodes_from_sub_id(sub_id):
     return result
 
 
-async def resolve_security_flags(sub_id, storage, client=None):
+async def resolve_security_flags(sub_id, storage, client=None, http_manager=None):
     if not client:
-        client = await resolve_client(sub_id, storage)
+        client = await resolve_client(sub_id, storage, http_manager=http_manager)
     try:
         sec_rules = await storage.get_security_rules()
         if not isinstance(sec_rules, dict):

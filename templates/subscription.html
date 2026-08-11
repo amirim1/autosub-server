@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>AutoSub Subscription</title>
+    <link rel="stylesheet" href="/sub/_assets/subscription.css">
+</head>
+<body>
+    <main class="page-shell">
+        <section class="subscription-card" aria-labelledby="page-title">
+            <p class="eyebrow">AutoSub Server v{{ app_version }}</p>
+            {% if error %}
+            <h1 id="page-title">Подписка временно недоступна</h1>
+            <p>AutoSub не смог безопасно подготовить данные. Повторите запрос позднее.</p>
+            <p class="diagnostic">Request ID: <code>{{ request_id }}</code></p>
+            <a class="button secondary" href="{{ html_url }}">Повторить</a>
+            {% else %}
+            <h1 id="page-title">Подписка AutoSub готова</h1>
+            <p>Для VPN-клиента используйте JSON-ссылку. Страница создана локально и не выполняет HTML панели.</p>
+            <div class="actions">
+                <a class="button" href="{{ json_url }}">Открыть JSON</a>
+            </div>
+            {% endif %}
+            <p class="privacy-note">Внешние скрипты, аналитика и сторонние ресурсы не используются.</p>
+        </section>
+    </main>
+</body>
+</html>

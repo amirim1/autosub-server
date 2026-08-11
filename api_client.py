@@ -4,32 +4,22 @@ import json
 import re
 import time
 import urllib.parse
-import httpx
 
 from config import env_get
+from http_client_errors import (
+    HttpClientNotStartedError,
+    UpstreamAuthenticationError,
+    UpstreamResponseError,
+    UpstreamServerError,
+)
+from http_client_config import MAX_HTML_BYTES, MAX_JSON_BYTES, MAX_SUBSCRIPTION_BYTES
 
 
 def join_url(base, path):
     return base.rstrip("/") + "/" + path.lstrip("/")
 
 
-_sub_cache = {}
-_sub_cache_ttl = 30  # seconds
-_sub_cache_lock = asyncio.Lock()
-
-
-async def fetch_original_subscription(sub_id, query=""):
-    cache_key = f"{sub_id}:{query}"
-    now = time.time()
-    
-    async with _sub_cache_lock:
-        if cache_key in _sub_cache:
-            data, ctype, headers, expiry = _sub_cache[cache_key]
-            if expiry >= now:
-                return data, ctype, headers
-            else:
-                _sub_cache.pop(cache_key, None)
-
+async def fetch_original_subscription(sub_id, query="", client_manager=None):
     xui_url = env_get("XUI_SUB_URL", env_get("XUI_URL", ""))
     if not xui_url:
         raise RuntimeError("XUI_SUB_URL is not configured in .env")
@@ -38,42 +28,20 @@ async def fetch_original_subscription(sub_id, query=""):
     if query:
         url += "?" + query
         
-    verify = env_get("XUI_TLS_VERIFY", "true").lower() not in ("0", "false", "no", "off")
-    async with httpx.AsyncClient(verify=verify, timeout=25.0) as client:
-        resp = await client.get(url, headers={"User-Agent": "AutoSub/1.0"})
-        resp.raise_for_status()
-        ctype = resp.headers.get("Content-Type", "application/octet-stream")
-        
-        async with _sub_cache_lock:
-            # cleanup expired while we're at it
-            expired = [k for k, v in _sub_cache.items() if v[3] < time.time()]
-            for k in expired:
-                _sub_cache.pop(k, None)
-            if len(_sub_cache) > 1000:
-                _sub_cache.clear()
-            _sub_cache[cache_key] = (resp.text, ctype, resp.headers, time.time() + _sub_cache_ttl)
-            
-        return resp.text, ctype, resp.headers
-
-
-async def fetch_original_sub_html(sub_id, request_headers=None):
-    xui_url = env_get("XUI_SUB_URL", env_get("XUI_URL", ""))
-    if not xui_url:
-        raise RuntimeError("XUI_SUB_URL is not configured in .env")
-    path = f"/sub/{urllib.parse.quote(sub_id, safe='')}"
-    url = join_url(xui_url, path)
-    
-    verify = env_get("XUI_TLS_VERIFY", "true").lower() not in ("0", "false", "no", "off")
-    req_headers = {"User-Agent": "Mozilla/5.0"}
-    if request_headers:
-        for k in ("user-agent", "accept-language", "accept"):
-            val = request_headers.get(k)
-            if val:
-                req_headers[k] = val
-
-    async with httpx.AsyncClient(verify=verify, timeout=25.0) as client:
-        resp = await client.get(url, headers=req_headers)
-        return resp.text, resp.headers.get("Content-Type", "text/html; charset=utf-8"), resp.status_code
+    if client_manager is None:
+        raise HttpClientNotStartedError("managed HTTP client is required")
+    resp = await client_manager.request_public(
+        "GET",
+        url,
+        max_bytes=MAX_SUBSCRIPTION_BYTES,
+        headers={"User-Agent": "AutoSub/1.0"},
+    )
+    if resp.status_code >= 500:
+        raise UpstreamServerError("upstream subscription is temporarily unavailable")
+    if not 200 <= resp.status_code < 300:
+        raise UpstreamResponseError("upstream subscription returned an error")
+    ctype = resp.headers.get("Content-Type", "application/octet-stream")
+    return resp.text, ctype, resp.headers
 
 
 def normalize_subscription(text):
@@ -128,13 +96,15 @@ def _group_values(value):
 
 
 class XuiApi:
-    def __init__(self):
-        self.base = env_get("XUI_API_URL", env_get("XUI_URL", ""))
-        self.username = env_get("XUI_USERNAME")
-        self.password = env_get("XUI_PASSWORD")
-        self.api_token = env_get("XUI_API_TOKEN")
-        self.cookie_header = ""
+    def __init__(self, config, client, requester):
+        self.base = config.base_url
+        self.username = config.username
+        self.password = config.password
+        self.api_token = config.api_token
+        self.client = client
+        self._request = requester
         self.csrf_token = ""
+        self._auth_generation = 0
         self._inbounds_cache = None
         self._inbounds_cache_time = 0
         self._inbounds_ttl = 60
@@ -142,14 +112,10 @@ class XuiApi:
         self._clients_cache_time = 0
         self._clients_ttl = 30
         self._lock = asyncio.Lock()
-        
-        verify = env_get("XUI_TLS_VERIFY", "true").lower() not in ("0", "false", "no", "off")
-        self.client = httpx.AsyncClient(verify=verify, timeout=20.0)
 
-    async def aclose(self):
-        """Close the shared HTTP client. Safe to call more than once."""
-        if not self.client.is_closed:
-            await self.client.aclose()
+    @property
+    def cookie_header(self):
+        return "; ".join(f"{cookie.name}={cookie.value}" for cookie in self.client.cookies.jar)
 
     def enabled(self):
         return bool(self.base and (self.api_token or (self.username and self.password)))
@@ -161,49 +127,53 @@ class XuiApi:
             return
 
         async with self._lock:
-            if self.cookie_header:
-                return # Already logged in by another concurrent task
-                
-            resp = await self.client.get(self.base, headers={"User-Agent": "AutoSub/1.0"})
-            resp.raise_for_status()
-            
-            token_match = re.search(
-                r'<meta\s+name=["\']csrf-token["\']\s+content=["\']([^"\']+)["\']', resp.text
-            )
-            if token_match:
-                self.csrf_token = token_match.group(1)
+            if self._auth_generation and self.cookie_header:
+                return
+            await self._login_locked()
 
-            cookies = resp.cookies
-            self.cookie_header = "; ".join(f"{k}={v}" for k, v in cookies.items())
-            
-            url = join_url(self.base, "/login")
-            login_headers = {
-                "User-Agent": "AutoSub/1.0",
-                "X-Requested-With": "XMLHttpRequest",
-                "Referer": self.base.rstrip("/") + "/",
-            }
-            if self.cookie_header:
-                login_headers["Cookie"] = self.cookie_header
-            if self.csrf_token:
-                login_headers["X-CSRF-Token"] = self.csrf_token
-                
-            resp = await self.client.post(url, data={"username": self.username, "password": self.password}, headers=login_headers)
-            resp.raise_for_status()
-            
-            for k, v in resp.cookies.items():
-                cookies.set(k, v)
-                
-            self.cookie_header = "; ".join(f"{k}={v}" for k, v in cookies.items())
-            if not self.cookie_header:
-                raise RuntimeError("3x-ui login did not return session cookie")
+    async def _login_locked(self):
+        resp = await self._request(
+            self.client,
+            "GET",
+            self.base,
+            max_bytes=MAX_HTML_BYTES,
+            headers={"User-Agent": "AutoSub/1.0"},
+        )
+        if not 200 <= resp.status_code < 300:
+            raise UpstreamAuthenticationError("panel login page was rejected")
+        token_match = re.search(
+            r'<meta\s+name=["\']csrf-token["\']\s+content=["\']([^"\']+)["\']',
+            resp.text,
+        )
+        self.csrf_token = token_match.group(1) if token_match else ""
+        headers = {
+            "User-Agent": "AutoSub/1.0",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": self.base.rstrip("/") + "/",
+        }
+        if self.csrf_token:
+            headers["X-CSRF-Token"] = self.csrf_token
+        resp = await self._request(
+            self.client,
+            "POST",
+            join_url(self.base, "/login"),
+            max_bytes=MAX_JSON_BYTES,
+            headers=headers,
+            data={"username": self.username, "password": self.password},
+        )
+        if not 200 <= resp.status_code < 300 or not self.cookie_header:
+            raise UpstreamAuthenticationError("panel authentication failed")
+        self._auth_generation += 1
 
-    async def refresh(self):
+    async def _refresh_after_auth_failure(self, observed_generation):
         async with self._lock:
-            self.cookie_header = ""
+            if self._auth_generation != observed_generation and self.cookie_header:
+                return
+            self.client.cookies.clear()
             self.csrf_token = ""
             self._inbounds_cache = None
             self._clients_cache = None
-        await self.login()
+            await self._login_locked()
 
     def _get_request_headers(self):
         headers = {
@@ -213,8 +183,6 @@ class XuiApi:
         }
         if self.api_token:
             headers["Authorization"] = f"Bearer {self.api_token}"
-        if self.cookie_header:
-            headers["Cookie"] = self.cookie_header
         if self.csrf_token:
             headers["X-CSRF-Token"] = self.csrf_token
         return headers
@@ -224,18 +192,28 @@ class XuiApi:
             await self.login()
         url = join_url(self.base, path)
         headers = self._get_request_headers()
-        try:
-            resp = await self.client.get(url, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-            return unwrap_api_obj(data)
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 403 and retry and self.api_token:
-                raise
-            if exc.response.status_code in (401, 403) and retry and not self.api_token:
-                await self.refresh()
+        observed_generation = self._auth_generation
+        resp = await self._request(
+            self.client,
+            "GET",
+            url,
+            max_bytes=MAX_JSON_BYTES,
+            headers=headers,
+        )
+        if resp.status_code in (401, 403):
+            if retry and not self.api_token:
+                await self._refresh_after_auth_failure(observed_generation)
                 return await self.get_json(path, retry=False)
-            raise
+            raise UpstreamAuthenticationError("panel authentication failed")
+        if not 200 <= resp.status_code < 300:
+            raise UpstreamResponseError("panel API returned an error")
+        if "html" in resp.headers.get("content-type", "").lower():
+            raise UpstreamResponseError("panel API returned an unexpected response")
+        try:
+            data = resp.json()
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise UpstreamResponseError("panel API returned malformed JSON") from exc
+        return unwrap_api_obj(data)
 
     async def inbounds(self):
         now = time.time()
@@ -401,25 +379,3 @@ class XuiApi:
             if mapped:
                 result.append(mapped)
         return list(dict.fromkeys(result))
-
-
-# --- Global singleton ---
-
-_global_api = None
-
-
-def get_xui_api():
-    """Return a shared XuiApi instance. Reuses login session and caches across requests."""
-    global _global_api
-    if _global_api is None:
-        _global_api = XuiApi()
-    return _global_api
-
-
-async def close_xui_api():
-    """Close an existing global API client without creating one."""
-    global _global_api
-    api = _global_api
-    _global_api = None
-    if api is not None:
-        await api.aclose()

@@ -4,13 +4,12 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import os
 
-# Define log path directly to avoid circular dependency with config.py
-DEFAULT_APP_DIR = Path("/opt/autosub-server")
-if not DEFAULT_APP_DIR.exists():
-    DEFAULT_APP_DIR = Path(__file__).parent.resolve()
+from logging_utils import RequestContextRedactionFilter
+from runtime_paths import get_shared_dir
 
-APP_DIR = Path(os.environ.get("AUTOSUB_APP_DIR", str(DEFAULT_APP_DIR)))
-LOG_PATH = Path(os.environ.get("AUTOSUB_LOG", str(APP_DIR / "autosub.log")))
+# Resolve the shared path without importing config.py, which imports this module.
+SHARED_DIR = get_shared_dir()
+LOG_PATH = Path(os.environ.get("AUTOSUB_LOG", str(SHARED_DIR / "autosub.log")))
 
 LOG_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
 LOG_BACKUP_COUNT = 3
@@ -18,12 +17,19 @@ LOG_BACKUP_COUNT = 3
 
 def setup_logger():
     # Ensure directory exists
-    APP_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     _logger = logging.getLogger("autosub")
     _logger.setLevel(logging.INFO)
 
-    formatter = logging.Formatter('[%(asctime)s] %(levelname)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    formatter = logging.Formatter(
+        '[%(asctime)s] %(levelname)s [request_id=%(request_id)s]: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+    )
+    if not any(
+        isinstance(item, RequestContextRedactionFilter) for item in _logger.filters
+    ):
+        _logger.addFilter(RequestContextRedactionFilter())
 
     # File handler with rotation
     try:

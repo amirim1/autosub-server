@@ -2,9 +2,52 @@
 
 All notable changes to AutoSub Server will be documented in this file.
 
-## [v2.1.0] - 2026-07-31
+## [v3.0.0] - 2026-08-11
 
-2026-08-01: Исправить ложную поддержку шифрования Happ в `autosub_server.py`, `builder.py` и админке - удалены недокументированные заголовки и поля payload, обычная JSON-подписка больше не заявляется как зашифрованная (завершено).
+### Security
+- Hardened admin authentication by enforcing both username and password, rejecting
+  unsafe non-loopback configurations, and rate-limiting authentication attempts.
+- Replaced process-local CSRF state with reusable HMAC-SHA256 tokens and added request
+  IDs, redacted errors/logs, and consistent security headers.
+- Added trusted-proxy-aware public/admin rate limiting with spoof-safe forwarded-header
+  parsing and explicit `429`/`Retry-After` responses.
+- Replaced execution of upstream HTML on legacy `/sub/` URLs with a local autoescaped
+  AutoSub page using a strict CSP and `no-store`.
+
+### Reliability
+- Made SQLite migrations transactional, with schema validation, integrity checks, and
+  verified backups before upgrades.
+- Made legacy `config.json` recovery fail closed and retryable through strict validation,
+  transactional import, post-write verification, and a last-written migration marker.
+- Moved upstream HTTP clients into FastAPI lifespan with bounded pools, explicit
+  timeouts, response-size limits, isolated panel sessions, and shutdown cleanup.
+- Added a bounded LRU/TTL subscription cache with hashed keys, per-key single-flight,
+  stale-if-error behavior, and generation-based invalidation.
+
+### Deployment
+- Introduced the root-managed `releases/current/shared` layout with release-local
+  virtual environments and a manifest-defined immutable runtime payload.
+- Added a locked, atomic updater with verified SQLite backups, readiness gating, code
+  rollback, interrupted-update recovery, bounded retention, and safe migration from the
+  legacy flat layout.
+
+### Compatibility / Breaking Changes
+- Python 3.10 is now the minimum supported version.
+- Production deployment now uses `/opt/autosub-server/{releases,current,shared}`.
+- Invalid legacy configuration now stops startup instead of being silently ignored.
+- Browser requests to legacy `/sub/` URLs now receive local AutoSub HTML rather than
+  the upstream panel page; generated JSON routes and payloads remain compatible.
+- The configured admin username is enforced as well as the password.
+- Non-loopback deployments require secure admin authentication configuration.
+- Production requires a stable `AUTOSUB_SECRET_KEY` for restart-safe CSRF tokens.
+- Rate limiting can return HTTP `429` with `Retry-After`.
+- Automatic database restore is intentionally not performed after a normal production
+  activation failure because the new release may already have accepted writes; the
+  verified backup is retained for manual recovery.
+
+---
+
+## [v2.1.0] - 2026-07-31
 
 ### Fixed
 - **Probe Interval Persistence**: `probe_interval` from SQLite and the dashboard now propagates into generated `burstObservatory.pingConfig.interval` instead of being hardcoded.
