@@ -284,6 +284,11 @@ async def health():
     return PlainTextResponse(f"AutoSub Server v{VERSION} OK")
 
 
+@app.get("/health/live")
+async def liveness():
+    return JSONResponse({"status": "alive"})
+
+
 @app.get("/health/ready")
 async def readiness(request: Request):
     if request.app.state.ready:

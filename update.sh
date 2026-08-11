@@ -46,7 +46,8 @@ if ! "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10)
   fail "Python 3.10 or newer is required"
 fi
 
-install -d -m 700 "$APP_DIR" "$APP_DIR/releases" "$APP_DIR/shared/backups"
+install -d -m 700 \
+  "$APP_DIR" "$APP_DIR/releases" "$APP_DIR/shared" "$APP_DIR/shared/backups"
 exec 9>"$APP_DIR/.update.lock"
 if ! flock -n 9; then
   fail "update already in progress"
