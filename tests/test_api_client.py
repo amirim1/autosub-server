@@ -1,4 +1,5 @@
 import asyncio
+import gzip
 
 import httpx
 
@@ -38,6 +39,39 @@ def test_xui_api_uses_manager_owned_client():
     assert len(requests) == 2
     assert all(request.headers["Authorization"] == "Bearer test-token" for request in requests)
     assert api.client.is_closed
+
+
+def test_xui_api_reads_gzip_encoded_json_once():
+    body = gzip.compress(b'{"obj":[{"id":7}]}')
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            content=body,
+            headers={
+                "Content-Encoding": "gzip",
+                "Content-Type": "application/json",
+            },
+        )
+
+    values = {
+        "XUI_API_URL": "https://panel.example.test",
+        "XUI_API_TOKEN": "test-token",
+    }
+    manager = HttpClientManager(
+        env_getter=lambda key, default="": values.get(key, default),
+        transport=httpx.MockTransport(handler),
+    )
+
+    async def exercise():
+        await manager.start()
+        try:
+            async with manager.panel_api() as api:
+                return await api.get_json("/compressed")
+        finally:
+            await manager.close()
+
+    assert asyncio.run(exercise()) == [{"id": 7}]
 
 
 def test_explicit_panel_config_reports_disabled_without_credentials():
