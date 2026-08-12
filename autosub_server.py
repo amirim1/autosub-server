@@ -546,7 +546,9 @@ async def admin_add_autoselect(
         try:
             await storage.add_autoselect(autoselect_id, name, strategy=strategy)
             await _invalidate_subscription_cache(request)
-            return RedirectResponse(url=f"/admin?msg=Балансировщик+{name}+успешно+создан", status_code=303)
+            return RedirectResponse(
+                url="/admin?msg=Балансировщик+успешно+создан", status_code=303
+            )
         except Exception:
             logger.exception("Admin autoselect creation failed")
             return plain_error("Autoselect creation failed", 500)

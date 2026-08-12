@@ -314,11 +314,29 @@ def test_systemd_and_manifest_contracts():
     assert "User=" + "autosub" not in unit
     assert "Group=" + "autosub" not in unit
     assert "User=root" not in unit
+    assert "UMask=0077" in unit
+    assert "NoNewPrivileges=true" in unit
+    assert "PrivateTmp=true" in unit
+    assert "PrivateDevices=true" in unit
+    assert "ProtectHome=true" in unit
+    assert "ProtectSystem=strict" in unit
+    assert "ReadWritePaths=/opt/autosub-server/shared" in unit
+    assert "ProtectKernelTunables=true" in unit
+    assert "ProtectKernelModules=true" in unit
+    assert "ProtectControlGroups=true" in unit
+    assert "RestrictSUIDSGID=true" in unit
+    assert "RestrictRealtime=true" in unit
+    assert "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" in unit
+    assert "CapabilityBoundingSet=" in unit
+    assert "AmbientCapabilities=" in unit
     assert "flock -n" in updater
     assert ".update.lock" in updater
     assert '"$MANAGER" recover' in updater
     assert '--requirements-lock "$SRC_DIR/requirements.txt"' in updater
     assert 'requested="${requested:-main}"' not in updater
+    assert "systemd unit is missing required hardening" in updater
+    assert "'ProtectSystem=strict'" in updater
+    assert "'CapabilityBoundingSet='" in updater
     assert "--require-hashes" in Path("release_manager.py").read_text(encoding="utf-8")
     assert not any(
         entry.startswith(("tests/", "docs/", ".codex/")) or entry in {".env", "data.db"}

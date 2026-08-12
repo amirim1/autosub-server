@@ -47,7 +47,7 @@ AutoSub Server — локальный FastAPI-прокси JSON-подписок
 - При изменении конкретного модуля — соответствующие тесты из `tests/`.
 - `python -m compileall -q *.py` — базовая проверка синтаксиса Python.
 - `ruff check .` и `pyright` — обязательные статические проверки.
-- `python -m pytest --cov=. --cov-branch --cov-fail-under=55` — минимальный coverage gate.
+- `python -m pytest --cov=. --cov-branch --cov-fail-under=70` — минимальный coverage gate.
 - На Linux для shell/deployment-изменений: `bash -n install.sh update.sh setup_nginx.sh finish_setup.sh`.
 - На Linux перед Nginx deployment: `nginx -t`; после systemd-изменений: `systemctl daemon-reload` и `systemctl status autosub-server --no-pager`.
 - Для dependency/security-проверок используй project gates `pip-audit`, `bandit` и `shellcheck`.

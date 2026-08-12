@@ -22,6 +22,7 @@ def test_runtime_manifest_covers_python_modules_and_runtime_assets():
 
     assert {path.name for path in Path().glob("*.py")} <= manifest
     assert RUNTIME_ASSETS <= manifest
+    assert "LICENSE" in manifest
     assert not any(
         entry.startswith(("tests/", "docs/", ".codex/", ".git/"))
         or entry in {".env", "data.db", "autosub.log"}
@@ -33,7 +34,7 @@ def test_final_ci_has_locked_python_security_and_shell_gates():
     workflow = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
 
     for required in (
-        'python-version: ["3.10", "3.12"]',
+        'python-version: ["3.10", "3.12", "3.14"]',
         "--require-hashes -r requirements-dev.txt",
         "pytest --cov=.",
         "ruff check .",

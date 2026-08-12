@@ -54,14 +54,19 @@ def client(monkeypatch, tmp_path):
 @pytest.mark.parametrize(
     ("accept", "user_agent", "expected"),
     [
-        ("application/json", "Mozilla/5.0", SubscriptionRepresentation.JSON),
-        ("text/plain", "Mozilla/5.0", SubscriptionRepresentation.JSON),
+        ("application/json", "Mozilla/5.0", SubscriptionRepresentation.HTML),
+        ("text/plain", "Mozilla/5.0", SubscriptionRepresentation.HTML),
         ("text/html", "Unknown/1.0", SubscriptionRepresentation.HTML),
         ("*/*", "Unknown/1.0", SubscriptionRepresentation.JSON),
         ("", "Unknown/1.0", SubscriptionRepresentation.JSON),
         ("*/*", "Mozilla/5.0", SubscriptionRepresentation.HTML),
         ("", "Mozilla/5.0", SubscriptionRepresentation.HTML),
         ("*/*", "Happ/3.0", SubscriptionRepresentation.JSON),
+        (
+            "application/json",
+            "Mozilla/5.0 Happ/3.0",
+            SubscriptionRepresentation.JSON,
+        ),
         (
             "text/html, application/json;q=0.9",
             "Unknown/1.0",
@@ -70,7 +75,7 @@ def client(monkeypatch, tmp_path):
         (
             "text/html;q=0.2, application/json;q=0.8",
             "Mozilla/5.0",
-            SubscriptionRepresentation.JSON,
+            SubscriptionRepresentation.HTML,
         ),
         (
             "application/json;q=0, text/html;q=0.5",
@@ -124,6 +129,20 @@ def test_explicit_format_overrides_accept_and_json_route_is_fixed():
         is_json_route=True,
         format_values=("html",),
         accept="text/html",
+    ) is SubscriptionRepresentation.JSON
+
+
+def test_browser_user_agent_restores_landing_for_json_preferring_webviews():
+    assert select_subscription_representation(
+        is_json_route=False,
+        accept="application/json, text/plain, */*",
+        user_agent="Mozilla/5.0 Mobile WebView",
+    ) is SubscriptionRepresentation.HTML
+    assert select_subscription_representation(
+        is_json_route=False,
+        format_values=("json",),
+        accept="application/json, text/plain, */*",
+        user_agent="Mozilla/5.0 Mobile WebView",
     ) is SubscriptionRepresentation.JSON
 
 
@@ -191,6 +210,9 @@ def test_local_html_has_strict_headers_and_no_unsafe_template_sinks(client):
     assert "unsafe-inline" not in policy
     assert "https://" not in response.text
     assert 'href="/sub/_assets/subscription.css"' in response.text
+    assert "Подписка AutoSub готова" in response.text
+    assert "Автовыбор применён" in response.text
+    assert "Без внешних скриптов" in response.text
 
     stylesheet = test_client.get("/sub/_assets/subscription.css")
     assert stylesheet.status_code == 200
