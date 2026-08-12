@@ -1,4 +1,5 @@
 # Immutable runtime files copied into every release.
+LICENSE
 .env.example
 api_client.py
 autosub_server.py

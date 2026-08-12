@@ -3,26 +3,51 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>AutoSub Subscription</title>
+    <meta name="color-scheme" content="dark">
+    <title>Подписка AutoSub</title>
     <link rel="stylesheet" href="/sub/_assets/subscription.css">
 </head>
 <body>
+    <div class="ambient ambient-one" aria-hidden="true"></div>
+    <div class="ambient ambient-two" aria-hidden="true"></div>
     <main class="page-shell">
-        <section class="subscription-card" aria-labelledby="page-title">
-            <p class="eyebrow">AutoSub Server v{{ app_version }}</p>
+        <section class="subscription-card{% if error %} is-error{% endif %}" aria-labelledby="page-title">
+            <header class="brand-row">
+                <span class="brand-mark" aria-hidden="true">AS</span>
+                <span class="brand-name">AutoSub Server</span>
+                <span class="status-pill">v{{ app_version }}</span>
+            </header>
+
             {% if error %}
+            <div class="state-icon error-icon" aria-hidden="true">!</div>
+            <p class="eyebrow">Не удалось обновить данные</p>
             <h1 id="page-title">Подписка временно недоступна</h1>
-            <p>AutoSub не смог безопасно подготовить данные. Повторите запрос позднее.</p>
-            <p class="diagnostic">Request ID: <code>{{ request_id }}</code></p>
-            <a class="button secondary" href="{{ html_url }}">Повторить</a>
-            {% else %}
-            <h1 id="page-title">Подписка AutoSub готова</h1>
-            <p>Для VPN-клиента используйте JSON-ссылку. Страница создана локально и не выполняет HTML панели.</p>
+            <p class="lead">AutoSub не смог безопасно подготовить подписку. Повторите запрос через несколько минут.</p>
+            <p class="diagnostic">Код запроса <code>{{ request_id }}</code></p>
             <div class="actions">
-                <a class="button" href="{{ json_url }}">Открыть JSON</a>
+                <a class="button secondary" href="{{ html_url }}">Попробовать снова</a>
+            </div>
+            {% else %}
+            <div class="state-icon" aria-hidden="true">✓</div>
+            <p class="eyebrow">Готово к подключению</p>
+            <h1 id="page-title">Подписка AutoSub готова</h1>
+            <p class="lead">Автовыбор серверов уже добавлен. Откройте JSON-ссылку в совместимом VPN-клиенте или скопируйте адрес текущей подписки в приложение.</p>
+
+            <ul class="feature-grid" aria-label="Состояние подписки">
+                <li><span aria-hidden="true">✓</span> Автовыбор применён</li>
+                <li><span aria-hidden="true">✓</span> JSON подготовлен</li>
+                <li><span aria-hidden="true">✓</span> Данные 3x-ui защищены</li>
+            </ul>
+
+            <div class="actions">
+                <a class="button" href="{{ json_url }}">Открыть JSON <span aria-hidden="true">→</span></a>
             </div>
             {% endif %}
-            <p class="privacy-note">Внешние скрипты, аналитика и сторонние ресурсы не используются.</p>
+
+            <footer class="privacy-note">
+                <span class="lock-mark" aria-hidden="true">◆</span>
+                <span>Без внешних скриптов, аналитики и недоверенного HTML панели.</span>
+            </footer>
         </section>
     </main>
 </body>

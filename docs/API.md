@@ -10,6 +10,11 @@ Redirects to `/admin` with HTTP 307.
 
 Returns plain text such as `AutoSub Server v<version> OK`.
 
+### `GET /health/live`
+
+Returns `200 {"status":"alive"}` while the application process can serve HTTP.
+This is the explicit liveness route; `/health` remains for backward compatibility.
+
 ### `GET /health/ready`
 
 Returns `200 {"status":"ready"}` only after FastAPI startup has opened/migrated
@@ -32,11 +37,13 @@ Legacy-compatible route with two representations:
 - `?format=html` returns a local AutoSub landing page. The page validates subscription
   readiness through the existing cache but never embeds or returns upstream HTML.
 
-Explicit `format` has priority over weighted `Accept`; `application/json` and
-`text/plain` select JSON, while `text/html` selects local HTML. Known subscription
-clients and unknown/default `*/*` requests fall back to JSON. A Mozilla User-Agent is
-used only as a final browser fallback. Unsupported or repeated `format` values return
-HTTP 400 without reflecting the value. AutoSub has no separate raw/base64 representation.
+Explicit `format` has priority over all detection. Without it, a Mozilla browser or
+WebView that is not a known subscription client receives local HTML even when its
+`Accept` header prefers JSON. This preserves browser landing behavior for embedded
+browsers. For other callers, weighted `Accept` selects `application/json`,
+`text/plain`, or `text/html`; known subscription clients and unknown/default `*/*`
+requests fall back to JSON. Unsupported or repeated `format` values return HTTP 400
+without reflecting the value. AutoSub has no separate raw/base64 representation.
 
 The HTML response uses a local autoescaped template, strict self-only CSP,
 `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, and no external assets.

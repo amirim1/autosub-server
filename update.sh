@@ -126,6 +126,26 @@ validate_service_unit() {
   if grep -Eq '^(User|Group)=autosub$' "$unit"; then
     fail "dedicated autosub service identity is not supported"
   fi
+  local directive
+  for directive in \
+    'UMask=0077' \
+    'NoNewPrivileges=true' \
+    'PrivateTmp=true' \
+    'PrivateDevices=true' \
+    'ProtectHome=true' \
+    'ProtectSystem=strict' \
+    'ReadWritePaths=/opt/autosub-server/shared' \
+    'ProtectKernelTunables=true' \
+    'ProtectKernelModules=true' \
+    'ProtectControlGroups=true' \
+    'RestrictSUIDSGID=true' \
+    'RestrictRealtime=true' \
+    'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6' \
+    'CapabilityBoundingSet=' \
+    'AmbientCapabilities='; do
+    grep -Fqx "$directive" "$unit" \
+      || fail "systemd unit is missing required hardening: $directive"
+  done
 }
 
 ensure_shared_defaults() {

@@ -24,6 +24,33 @@ def test_storage_client_groups(tmp_path):
     asyncio.run(_test())
 
 
+def test_client_group_upsert_preserves_row_identity(tmp_path):
+    async def _test():
+        store = Storage(str(tmp_path / "upsert.db"))
+        await store.connect()
+
+        await store.set_client_groups("sub_123", "first@example.test", "stable")
+        async with store.conn.execute(
+            "SELECT id, created_at FROM client_groups WHERE sub_id = ?", ("sub_123",)
+        ) as cursor:
+            original = await cursor.fetchone()
+
+        await store.set_client_groups("sub_123", "second@example.test", "vip")
+        async with store.conn.execute(
+            "SELECT id, created_at, email, groups FROM client_groups WHERE sub_id = ?",
+            ("sub_123",),
+        ) as cursor:
+            updated = await cursor.fetchone()
+
+        assert updated["id"] == original["id"]
+        assert updated["created_at"] == original["created_at"]
+        assert updated["email"] == "second@example.test"
+        assert updated["groups"] == "vip"
+        await store.close()
+
+    asyncio.run(_test())
+
+
 def test_storage_autoselect_crud_and_security(tmp_path):
     async def _test():
         db_file = tmp_path / "test2.db"

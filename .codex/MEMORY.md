@@ -1,9 +1,19 @@
 # Project Memory
 
-## Final Hardening State
+## Current baseline
 
-Release candidate metadata is `3.0.0`. PR №1–12 are complete, and remote GitHub
-Actions have not yet executed for the final branch.
+AutoSub Server `3.0.5` is the current production baseline. Production is
+`main`; integration work targets `dev`. Stable `main` entrypoints resolve the latest
+published release; `AUTOSUB_VERSION=dev` fetches the exact development branch.
+
+Legacy `/sub/{sub_id}` returns JSON to known VPN clients and a safe local AutoSub
+landing page to ordinary Mozilla browsers/WebViews even when their `Accept` header
+prefers JSON. Explicit `format=json|html` has priority, `/json/` is always JSON, and
+upstream 3x-ui HTML is never executed under the AutoSub origin.
+
+The root-managed systemd service has no capabilities, sees system and application
+code read-only, and may write only to `/opt/autosub-server/shared`. CI also includes
+CodeQL; GitHub Actions versions are maintained through Dependabot.
 
 PR №12 closes the last known strict xfail. Existing legacy `shared/config.json` is
 parsed as strict UTF-8 JSON, minimally validated, and imported by
@@ -18,7 +28,7 @@ Linux/Python 3.10+, root-managed with `Restart=on-failure`; fresh install genera
 CSRF and admin secrets while repeated install preserves `shared`. Runtime manifest and
 temporary-root deployment smoke tests cover manifest-only import, fresh initialization,
 legacy persistence/config migration, successful update, rollback, and interrupted
-recovery. CI runs Python 3.10/3.12, locked installs, pytest/coverage, Ruff, Pyright,
+recovery. CI runs Python 3.10/3.12/3.14, locked installs, pytest/coverage, Ruff, Pyright,
 pip-audit, Bandit, ShellCheck, and `bash -n`.
 
 ## Project Overview
@@ -68,6 +78,10 @@ Python 3.10+, FastAPI, Uvicorn, httpx, aiosqlite, Jinja2, pytest, pytest-asyncio
 - `XUI_SUB_URL` используется для получения подписки; `XUI_API_URL` — для API панели; `XUI_URL` — fallback.
 
 ## Current State
+
+Release `v3.0.5` restores browser landing selection for JSON-preferring
+Mozilla/WebView requests, keeps explicit formats and known VPN clients compatible,
+hardens systemd/Nginx/CI, and refreshes first-time-user documentation.
 
 Финальный baseline после PR №12 фиксируется полным pytest/coverage и quality gates;
 strict xfail для malformed config marker закрыт production-исправлением. Rate limiter

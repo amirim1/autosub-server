@@ -96,6 +96,13 @@ def select_subscription_representation(
                 "supported subscription formats are json and html"
             ) from exc
 
+    normalized_agent = str(user_agent or "").lower()
+    is_subscription_client = any(
+        client in normalized_agent for client in KNOWN_SUBSCRIPTION_CLIENTS
+    )
+    if "mozilla/" in normalized_agent and not is_subscription_client:
+        return SubscriptionRepresentation.HTML
+
     choices = []
     for item in parse_accept_header(accept):
         if item.media_type == "text/html":
@@ -108,11 +115,8 @@ def select_subscription_representation(
     if choices:
         return min(choices)[2]
 
-    normalized_agent = str(user_agent or "").lower()
-    if any(client in normalized_agent for client in KNOWN_SUBSCRIPTION_CLIENTS):
+    if is_subscription_client:
         return SubscriptionRepresentation.JSON
-    if "mozilla/" in normalized_agent:
-        return SubscriptionRepresentation.HTML
     return SubscriptionRepresentation.JSON
 
 

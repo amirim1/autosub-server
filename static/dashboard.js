@@ -70,7 +70,8 @@ function markFormDirty() {
     const statusText = document.getElementById('stickySaveStatus');
     const saveBtn = document.getElementById('stickySaveBtn');
     if (statusText) {
-        statusText.innerHTML = '<span style="color:#f59e0b;">● Есть несохраненные изменения</span>';
+        statusText.textContent = '● Есть несохраненные изменения';
+        statusText.style.color = '#f59e0b';
     }
     if (saveBtn) {
         saveBtn.style.boxShadow = '0 0 25px rgba(245, 158, 11, 0.5)';
