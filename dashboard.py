@@ -13,12 +13,10 @@ from builder import (
 )
 from fingerprint import node_name, profile_node_id, node_summary
 from fastapi.templating import Jinja2Templates
-from config import APP_DIR, VERSION
+from config import VERSION
 from logger import logger
 
-templates_dir = APP_DIR / "templates"
-if not templates_dir.exists():
-    templates_dir = Path(__file__).parent.resolve() / "templates"
+templates_dir = Path(__file__).resolve().parent / "templates"
 
 templates = Jinja2Templates(directory=str(templates_dir))
 
