@@ -4,6 +4,8 @@ All notable changes to AutoSub Server will be documented in this file.
 
 ## [Unreleased]
 
+## [v3.0.5] - 2026-08-12
+
 ### Fixed
 - Restored the safe local landing page for ordinary Mozilla/WebView requests to
   legacy `/sub/<subId>` links even when the browser sends a JSON-preferring `Accept`

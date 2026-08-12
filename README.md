@@ -118,7 +118,7 @@ curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/dev/install.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/install.sh \
-  | AUTOSUB_VERSION=v3.0.4 bash
+  | AUTOSUB_VERSION=v3.0.5 bash
 ```
 
 ### Первичная настройка
@@ -239,7 +239,7 @@ AUTOSUB_VERSION=dev /opt/autosub-server/update.sh
 ### Закреплённая версия
 
 ```bash
-AUTOSUB_VERSION=v3.0.4 /opt/autosub-server/update.sh
+AUTOSUB_VERSION=v3.0.5 /opt/autosub-server/update.sh
 ```
 
 Обновлятор использует lock, проверяет свободное место и Python, создаёт backup
