@@ -1,66 +1,79 @@
-# AutoSub Server - Структура проекта и Git Workflow
+# AutoSub Server — структура и Git workflow
 
-## 1. Ветки Git и их назначение
+## Ветки и каналы доставки
 
-- **`dev`** (Рабочая ветка):
-  - Используется для активной разработки, добавления новых функций и исправления багов.
-  - Все промежуточные коммиты и тестирование проводятся здесь.
-  - Команда обновления dev: `curl -sSL https://raw.githubusercontent.com/amirim1/autosub-server/dev/update.sh | AUTOSUB_VERSION=dev bash`
+- `main` — production-ветка. `install.sh`/`update.sh` из `main` по умолчанию
+  устанавливают последний опубликованный GitHub Release, а не произвольный HEAD.
+- `dev` — интеграционная ветка. Для установки точного состояния ветки необходимо
+  явно передать `AUTOSUB_VERSION=dev`.
+- `codex/*`, `feature/*`, `fix/*` — короткоживущие рабочие ветки. После merge их
+  следует удалять; прямые изменения `main` и `dev` не являются штатным процессом.
+- `vX.Y.Z` — неизменяемый production-тег, соответствующий GitHub Release.
 
-- **`main`** (Стабильная ветка / Production):
-  - Содержит проверенный, стабильный код для продакшена.
-  - Сюда вливается ветка `dev` перед созданием нового релиза.
-  - Команда обновления пром: `curl -sSL https://raw.githubusercontent.com/amirim1/autosub-server/main/update.sh | bash`
+Команды каналов приведены в основном [README](../README.md#быстрый-старт).
 
----
+## Pull request и release workflow
 
-## 2. Версионирование и Теги (Releases)
+1. Создать рабочую ветку от актуального `dev`.
+2. Внести одно связное изменение, обновить тесты и документацию.
+3. Запустить локальные доступные gates и открыть PR в `dev`.
+4. Дождаться обязательных CI-проверок и review, затем выполнить merge без переписывания
+   опубликованной истории.
+5. Для релиза подготовить версию и changelog отдельным PR `dev` → `main`.
+6. После зелёного CI выполнить merge, создать подписанный/аннотированный `vX.Y.Z` и
+   GitHub Release из содержимого changelog.
+7. Проверить установку/обновление по тегу и production readiness. Не перемещать и не
+   переиспользовать опубликованный тег.
 
-- Формат тегов: `vX.Y.Z` (Semantic Versioning)
-- Существующие релизы:
-  - `v1.0.0` — базовый релиз AutoSub Сервера
-  - `v1.1.0` / `v1.1.1` — поддержка каналов обновления и превью
-  - `v1.1.2` — исправление совместимости с Happ Proxy / v2rayNG (vnext/servers структура для TCP Ping и задержки)
-  - `v1.2.0` — поддержка старых `/sub/` ссылок, умное проксирование HTML веб-страницы 3x-ui для браузеров и исправление ошибки "Socket closed"
+Рекомендуемая защита `main` и `dev`: PR-only изменения, запрет force-push/delete,
+strict required status checks (`Tests (Python 3.10)`, `Tests (Python 3.12)`,
+`Tests (Python 3.14)`, `Lint and types`, `Dependency and source security`, `ShellCheck`,
+`CodeQL (Python)`) и
+автоматическое удаление merged-веток.
 
----
+## Основные компоненты
 
-## 3. Регламент проведения релизов (Release Process)
+- `autosub_server.py` — FastAPI lifecycle, HTTP-маршруты и границы безопасности.
+- `builder.py` — разбор подписки, нормализация Xray и генерация autoselect-профилей.
+- `api_client.py` — subscription/API интеграция 3x-ui и аутентификация.
+- `http_clients.py`, `http_client_config.py`, `http_client_errors.py` — lifespan HTTP
+  pools, лимиты, таймауты и безопасные сетевые ошибки.
+- `subscription_representation.py` — выбор JSON или безопасного локального HTML.
+- `subscription_cache.py` — bounded LRU/TTL, single-flight и stale-if-error.
+- `storage.py`, `migrations.py`, `database_*` — SQLite, миграции и backups.
+- `rate_limiter.py`, `csrf.py`, `http_security.py` — rate limit, trusted proxies,
+  CSRF, request IDs, CSP и response headers.
+- `dashboard.py`, `templates/`, `static/` — локальная админ-панель и subscription landing.
+- `release_manager.py`, `install.sh`, `update.sh` — атомарное развёртывание и rollback.
+- `setup_nginx.sh`, `nginx-example.conf`, `autosub-server.service` — production edge
+  и systemd runtime.
+- `runtime-manifest.txt` — единственный allowlist production payload.
+- `tests/` — unit, regression, security и temporary-root deployment smoke tests.
+- `.codex/` — отслеживаемые инструкции и инструменты проекта для AI-агентов; они не
+  входят в production manifest.
 
-1. Убедиться, что все изменения внесены, протестированы (`python -m pytest`) и закоммичены в ветку `dev`.
-2. Запушить ветку `dev` на GitHub (`git push origin dev`).
-3. Переключиться на ветку `main` (`git checkout main`).
-4. Влить ветку `dev` в `main` (`git merge dev`).
-5. Проставить аннотированный тег (`git tag -a vX.Y.Z -m "Release vX.Y.Z: <описание>"`).
-6. Запушить ветку `main` и тег на GitHub (`git push origin main && git push origin vX.Y.Z`).
-7. Вернуться на рабочую ветку `dev` (`git checkout dev`).
+## Production layout
 
----
+```text
+/opt/autosub-server/
+├── current -> releases/<release-id>
+├── releases/<release-id>/    # runtime allowlist + отдельный venv
+├── update.sh                 # root-owned установленный updater
+└── shared/                   # единственная записываемая runtime-область
+    ├── .env
+    ├── config.json
+    ├── data.db
+    ├── autosub.log
+    └── backups/
+```
 
-## 4. Обзор структуры файлов репозитория
+Сервис остаётся root-managed, но unit лишён capabilities, видит код read-only и может
+писать только в `shared`. Nginx публикует `/json/` и `/sub/`; admin port остаётся на
+loopback. Обновлятор использует lock, staging markers, SQLite backup, атомарный symlink,
+readiness gate, rollback кода и recovery после прерывания.
 
-- `builder.py` — Логика генерации подписок, автовыбор (leastPing балансировщик), обогащение `address`/`port`, нормализация `vnext`/`servers` для VLESS/VMess/Trojan.
-- `autosub_server.py` — FastAPI веб-сервер, роуты `/json/{sub_id}`, `/admin`, `/health`, ограничение частоты запросов (rate limiting).
-- `rate_limiter.py` — Bounded sliding-window limiter и trusted-proxy resolution.
-- `subscription_representation.py` — Детерминированный выбор JSON/local HTML для `/sub/`.
-- `storage.py` — Работа с SQLite базой данных (`data.db`), хранение групп клиентов, правил и пресетов автовыбора.
-- `api_client.py` — Взаимодействие с API 3x-ui / XUI панелей.
-- `subscription_cache.py` — Ограниченный LRU/TTL-кэш готовых публичных подписок,
-  single-flight и stale-if-error.
-- `fingerprint.py` — Генерация уникальных идентификаторов нод (канонические хэши).
-- `config.py` — Загрузка конфигурации и переменных окружения (`.env`).
-- `dashboard.py` / `templates/` / `static/` — Панель администратора и безопасная local subscription page (HTML/JS/CSS).
-- `update.sh` — Скрипт автоматического обновления сервера с GitHub.
-- `release_manager.py` — безопасная подготовка releases, symlink switch, SQLite backup
-  и тестируемый activation/rollback state machine.
-- `runtime_paths.py` — разделение активного release и persistent `shared/`.
-- `runtime-manifest.txt` — единый allowlist состава production release.
-- `install.sh` / `setup_nginx.sh` — Скрипты первичной установки и настройки Nginx.
-- `tests/` — Модульные и deployment regression tests, включая transactional legacy
-  config recovery, manifest-only release import, fresh layout, upgrade, rollback и
-  interrupted-update recovery на temporary roots/fake runners.
+## Что не входит в runtime
 
-Production layout: `/opt/autosub-server/current -> releases/<id>`, per-release `venv`
-и `/opt/autosub-server/shared/{.env,config.json,data.db,autosub.log,backups}`. Service
-остаётся root-managed без отдельного Unix user. `.codex/` и docs tracked в Git, но не
-входят в `runtime-manifest.txt` и не копируются в production release.
+`docs/`, `tests/`, `.github/`, `.codex/`, локальные окружения, секреты, базы и логи
+хранятся или создаются отдельно и не копируются в release. Любое добавление runtime
+модуля или asset требует одновременного обновления `runtime-manifest.txt` и его тестов.

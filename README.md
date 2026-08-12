@@ -1,477 +1,372 @@
 # AutoSub Server
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/amirim1/autosub-server/actions/workflows/ci.yml/badge.svg)](https://github.com/amirim1/autosub-server/actions/workflows/ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/amirim1/autosub-server)](https://github.com/amirim1/autosub-server/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
-## Финальная эксплуатационная модель
+**AutoSub Server** дополняет JSON-подписки панели 3x-ui профилями автоматического
+выбора сервера. Пользователь получает обычную ссылку подписки, а его VPN-клиент —
+готовые балансировщики `leastPing` или `leastLoad`, отфильтрованные по группе клиента.
 
-Production использует root-managed layout `/opt/autosub-server/{releases,current,shared}`
-и Python 3.10+. Fresh install генерирует отдельные `AUTOSUB_SECRET_KEY` и
-`AUTOSUB_ADMIN_PASSWORD`, сохраняет `.env` с mode `0600` и не перезаписывает existing
-shared data при повторном запуске.
+AutoSub нужен владельцу 3x-ui, который хочет централизованно:
 
-Legacy `shared/config.json` импортируется один раз. Существующий файл сначала строго
-декодируется как UTF-8 JSON, затем проверяется его минимальная структура; все записи и
-DB-marker `config_migrated=1` фиксируются одной транзакцией, причём marker записывается
-последним после проверки результата. Повреждённый config останавливает startup без
-marker и частичных записей: после исправления следующий запуск повторит import.
-Исходный файл остаётся в `shared/`.
+- добавлять в подписку один или несколько профилей автовыбора;
+- выбирать узлы для каждого профиля и назначать разные правила группам клиентов;
+- автоматически подхватывать существующие узлы и клиентов из 3x-ui;
+- управлять настройками через локальную веб-панель;
+- сохранить прежние ссылки `/sub/<subId>` и совместимость с VPN-клиентами.
 
-Проверенные operator commands:
-
-```bash
-systemctl status autosub-server --no-pager
-journalctl -u autosub-server -f
-systemctl restart autosub-server
-/opt/autosub-server/update.sh
-curl --fail http://127.0.0.1:25500/health/live
-curl --fail http://127.0.0.1:25500/health/ready
-readlink /opt/autosub-server/current
-find /opt/autosub-server/releases -mindepth 1 -maxdepth 1 -type d -printf '%f\n'
-find /opt/autosub-server/shared/backups -maxdepth 1 -type f -printf '%f\n'
-```
-
-Автоматический DB restore после обычного systemd restart не выполняется: verified
-backup сохраняется для fail-closed/manual recovery, чтобы rollback не стирал записи,
-которые могли появиться после открытия трафика.
-
-**AutoSub Server** — это локальный прокси-сервер JSON-подписок для панели **3x-ui**.
-
-Он перехватывает запросы `/json/<subId>` и `/sub/<subId>` с внешнего порта прокси, получает оригинальную JSON-подписку от 3x-ui, генерирует и добавляет разрешенные профили автоматического выбора нод (Autoselect / LeastPing) в начало списка и возвращает оригинальные ноды без изменений после них.
-
-Для старых ссылок `/sub/<subId>` сервер автоматически различает запросы: браузерам
-показывает безопасную локальную страницу AutoSub, а VPN-клиентам отдаёт обновлённую
-JSON-подписку с автовыбором. Недоверенный HTML 3x-ui не проксируется в origin AutoSub.
-
-> [English documentation is available in [README_EN.md](README_EN.md).]
-
----
-
-## 🌟 Главные возможности (Features)
-
-- **Настраиваемая умная балансировка**: Выбор `leastPing` или `leastLoad` для каждого профиля автовыбора.
-- **Обход блокировок (RU Bypass)**: Встроенные правила `direct` маршрутизации для популярных российских сервисов (Яндекс, Госуслуги, банки, маркетплейсы) в обход VPN.
-- **Метаданные подписки**: Выборочная передача стандартного заголовка `hide-settings` для настроенных групп клиентов.
-- **Современная админ-панель**: Управление клиентами, балансировщиками и настройками безопасности через красивый Glassmorphism веб-интерфейс.
-
----
-
-## 📋 Содержание
-
-- [Архитектура](#-архитектура)
-- [Быстрый старт](#-быстрый-старт)
-  - [Установка в одну команду](#установка-в-одну-команду-curl)
-  - [Ручная установка](#ручная-установка)
-- [Первичная настройка](#-первичная-настройка)
-- [Конфигурация (.env)](#-конфигурация-env)
-- [Панель управления (Dashboard)](#-панель-управления-dashboard)
-- [Настройка Nginx](#-настройка-nginx)
-- [Обновление](#-обновление)
-- [Разработка и зависимости](#-разработка-и-воспроизводимые-зависимости)
-- [Устранение неполадок](#-устранение-неполадок)
-
----
-
-## 🏗️ Архитектура
+Пример результата:
 
 ```text
-Внешний запрос клиента:
-https://sub.your-domain.com:2097/json/SUB_ID  (или /sub/SUB_ID)
-
-3x-ui (Оригинальная подписка):
-https://sub.your-domain.com:2096/sub/SUB_ID  (Base64 / Web HTML)
-https://sub.your-domain.com:2096/json/SUB_ID (JSON Upstream)
-
-AutoSub Server (Локальный прокси):
-http://127.0.0.1:25500/json/SUB_ID
-http://127.0.0.1:25500/sub/SUB_ID
-
-Настройка в панели 3x-ui:
-JSON URI обратного прокси = https://sub.your-domain.com:2097/json/
+Исходная подписка:  Германия, Нидерланды, Финляндия
+Через AutoSub:      🚀 Основные авто, ⚡ Все ноды авто,
+                    Германия, Нидерланды, Финляндия
 ```
 
-### Проксирование HTTP заголовков
-AutoSub передает клиентам важные метаданные подписки:
-- `Announce`: Текст объявления, отображаемый в шапке клиента (например, v2rayNG, Happ).
-- `Routing`, `Routing-Enable`: Правила маршрутизации от upstream.
-- `hide-settings`: Выдаётся как `1` только для групп, выбранных в админке AutoSub.
+AutoSub **не заменяет** 3x-ui, Xray, Nginx или VPN-клиент. Он не создаёт inbound,
+не меняет исходные узлы и не преобразует Base64-подписки: на входе и выходе ожидается
+JSON, который уже выдаёт 3x-ui.
 
-> `hide-settings` — это метаданные клиента, а не шифрование JSON. В Happ скрытие настроек требует отдельного [ProviderID](https://www.happ.su/main/dev-docs/provider-id), который AutoSub не настраивает. Зашифрованные ссылки Happ используют формат [crypt5](https://www.happ.su/main/dev-docs/crypto-link); AutoSub его не генерирует и всегда возвращает обычную JSON-подписку.
+[English version](README_EN.md)
 
-### ⚡ Совместимость и пинг (Client Compatibility)
-Формат Xray JSON-подписок (который генерирует AutoSub) полностью совместим с популярными клиентами (Happ, v2rayNG, NekoBox и др.).
-- ✅ **TCP Ping & Latency**: Благодаря автоматической нормализации исходящих соединений (структуры `vnext` для VLESS/VMess и `servers` для Trojan), стандартные тесты задержки и TCP-пинг работают корректно "из коробки" без бесконечной загрузки.
-- 💡 **HTTP GET / Real Ping**: Для протокола VLESS Reality по-прежнему рекомендуется использовать тест реальной задержки (Real Ping / via proxy get), так как серверы Reality могут блокировать пустые TCP-запросы (handshake) для защиты от активного сканирования цензорами.
+## Как это работает
 
----
+```text
+VPN-клиент или браузер
+        │  /json/SUB_ID или /sub/SUB_ID
+        ▼
+Nginx: TLS и публичные /json/ + /sub/
+        │  http://127.0.0.1:25500
+        ▼
+AutoSub Server
+        ├─ получает исходную JSON-подписку из 3x-ui
+        ├─ определяет клиента и его группы
+        ├─ добавляет разрешённые профили автовыбора
+        └─ возвращает подписку и исходные метаданные
+```
 
-## 🚀 Быстрый старт
+- `/json/<subId>` всегда возвращает JSON.
+- `/sub/<subId>` автоматически различает тип клиента. Обычный браузер, включая
+  Mozilla/WebView с JSON-предпочитающим `Accept`, получает безопасный локальный
+  лендинг AutoSub. Известные VPN-клиенты получают JSON-подписку.
+- `?format=json` и `?format=html` явно выбирают формат для `/sub/`; явный формат
+  важнее эвристики браузера. Маршрут `/json/` нельзя переключить в HTML.
+- Недоверенный HTML 3x-ui никогда не исполняется под origin AutoSub. Лендинг не
+  использует внешние скрипты, аналитику или ресурсы панели.
 
-**Стабильный релиз (Рекомендуется):**
+## Возможности
+
+- профили `leastPing` и `leastLoad` с выбранными узлами или шаблоном `*`;
+- правила по группам 3x-ui и индивидуальные переопределения клиента;
+- импорт каталога узлов и проверка API панели;
+- bounded LRU/TTL-кэш, per-key single-flight и stale-if-error;
+- отдельные HTTP-пулы для подписок и аутентифицированного API 3x-ui;
+- ограничения размера upstream-ответа, таймауты и безопасные повторы GET;
+- локальная админ-панель с Basic Auth, CSRF и rate limiting;
+- trusted-proxy модель для корректного определения IP за Nginx;
+- SQLite с транзакционными миграциями и резервной копией перед обновлением;
+- атомарные release-каталоги, readiness-проверка и автоматический rollback кода;
+- воспроизводимые lock-файлы с hashes и CI для Python 3.10/3.12/3.14.
+
+## Требования
+
+Штатная production-схема:
+
+- Linux с systemd (проверяется на Debian/Ubuntu-подобном окружении);
+- запуск установщика и обновлятора от `root`;
+- Python 3.10 или новее;
+- `git`, `curl`, `flock`, `systemctl` и не менее 512 MiB свободного места;
+- работающая 3x-ui с JSON-подпиской;
+- Nginx и TLS-сертификат для публичного доступа.
+
+По умолчанию AutoSub слушает только `127.0.0.1:25500`. Публичными через Nginx
+должны быть только `/json/` и `/sub/`; `/admin` открывайте через SSH-туннель.
+
+## Быстрый старт
+
+### Выбор канала
+
+| Канал | Для чего | Что устанавливается |
+|---|---|---|
+| `main` | production | последний опубликованный GitHub Release |
+| `dev` | тестовый сервер | точное текущее состояние ветки `dev` |
+| `vX.Y.Z` | закреплённая версия | конкретный тег без fallback на ветку |
+
+Не переключайте production между `main` и `dev` для проверки изменений. Для `dev`
+используйте отдельный сервер или отдельный `AUTOSUB_ROOT` и systemd unit.
+
+### Стабильная установка (`main`)
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/install.sh | bash
 ```
 
-**Ветка разработки (Dev):**
+Скрипт разрешает `latest` через GitHub Releases, загружает точный тег, создаёт
+`/opt/autosub-server/{releases,shared}`, отдельный venv релиза и systemd unit. При
+первой установке генерируются случайные admin- и CSRF-секреты.
+
+### Тестовая установка (`dev`)
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/dev/install.sh | AUTOSUB_VERSION=dev bash
+curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/dev/install.sh \
+  | AUTOSUB_VERSION=dev bash
 ```
 
-### Ручная установка
+### Установка конкретной версии
 
-Требуется сервер на Ubuntu/Debian.
+```bash
+curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/install.sh \
+  | AUTOSUB_VERSION=v3.0.4 bash
+```
 
-1. **Установка системных пакетов:**
-   ```bash
-   apt update
-   apt install -y python3 python3-pip python3-venv nginx git curl
-   ```
+### Первичная настройка
 
-2. **Клонирование репозитория:**
-   ```bash
-   git clone https://github.com/amirim1/autosub-server.git /tmp/autosub-server-src
-   cd /tmp/autosub-server-src
-   ```
+Откройте постоянный конфигурационный файл:
 
-3. **Запуск скрипта установки:**
-   Этот скрипт создаст виртуальное окружение, установит зафиксированные Python-зависимости и настроит системный сервис `systemd`.
-   ```bash
-   bash install.sh
-   ```
-
----
-
-## ⚙️ Первичная настройка (Пошагово)
-
-После успешной установки (скрипт `install.sh` автоматически создаст папку `/opt/autosub-server` и запустит сервис), необходимо выполнить следующие шаги:
-
-### Шаг 1: Подключение к 3x-ui (.env)
-Откройте файл конфигурации:
 ```bash
 nano /opt/autosub-server/shared/.env
 ```
-Укажите данные для подключения к вашей панели 3x-ui (потребуется `XUI_SUB_URL`, `XUI_API_URL` и либо логин/пароль, либо `XUI_API_TOKEN`). Для админ-панели задайте `AUTOSUB_ADMIN_USERNAME` и надежный `AUTOSUB_ADMIN_PASSWORD`. После обновления сохраненный в браузере username должен совпадать с настроенным значением (по умолчанию `admin`).
-После сохранения перезапустите сервис:
-```bash
-systemctl restart autosub-server
-```
 
-### Шаг 2: Настройка Nginx прокси
-AutoSub работает локально на порту `25500`. Чтобы ваши клиенты могли скачивать подписки, нужно настроить Nginx.
-Запустите скрипт автонастройки (замените домен и порт на ваши):
-```bash
-bash /opt/autosub-server/current/setup_nginx.sh sub.your-domain.com 2097
-```
-*(Либо настройте Nginx вручную, пример конфигурации лежит в `nginx-example.conf`)*
+Минимально проверьте:
 
-### Шаг 3: Настройка внутри 3x-ui
-Откройте вашу панель 3x-ui. Перейдите в Настройки панели (Panel Settings) и найдите параметр **"JSON URI обратного прокси"** (JSON Reverse Proxy URI). 
-Установите его равным адресу вашего Nginx из Шага 2, например: `https://sub.your-domain.com:2097/json/`.
-Теперь клиенты при нажатии кнопки "Обновить подписку" будут направляться через AutoSub.
-
-### Шаг 4: Настройка балансировщиков в админке AutoSub
-1. Пробросьте порт для безопасного доступа к локальной админке:
-   ```bash
-   ssh -L 25500:127.0.0.1:25500 root@YOUR_SERVER_IP
-   ```
-2. Откройте в браузере `http://127.0.0.1:25500/admin`
-3. Перейдите на вкладку **Ноды** и нажмите **Node Discovery**, вставив Subscription ID любого активного клиента, чтобы AutoSub просканировал все ваши серверы.
-4. Перейдите на вкладку **Автовыбор**, создайте балансировщик, выберите для него нужные серверы и сохраните. Готово!
-
----
-
-## ⚙️ Конфигурация (.env)
-
-Файл параметров расположен по адресу `/opt/autosub-server/shared/.env`:
-
-```env
+```dotenv
 AUTOSUB_HOST=127.0.0.1
 AUTOSUB_PORT=25500
-
-# Доверенные reverse-proxy (IP/CIDR через запятую). Только от них принимаются X-Real-IP/X-Forwarded-For.
-# Пустое значение отключает доверие; ошибочная или глобальная сеть останавливает startup.
 AUTOSUB_TRUSTED_PROXIES=127.0.0.1/32,::1/128
 
-# Basic Auth для админ-панели /admin. Обязательно замените примерный пароль.
-AUTOSUB_ADMIN_USERNAME=admin
-AUTOSUB_ADMIN_PASSWORD=change-me
-
-# HMAC-ключ CSRF. На новой установке install.sh генерирует его автоматически.
-AUTOSUB_SECRET_KEY=replace-with-a-random-secret
-
-# Адрес оригинальной JSON-подписки 3x-ui
-XUI_SUB_URL=https://sub.your-domain.com:2096
-
-# Адрес панели 3x-ui для работы API (укажите секретный путь, если используется)
-XUI_API_URL=https://panel.your-domain.com:54321
-
-# API-токен 3x-ui (Settings -> Security -> API Token)
-XUI_API_TOKEN=
-
-# Резервный URL 3x-ui
-XUI_URL=https://sub.your-domain.com:2096
-
-# Проверка TLS-сертификата API-панели 3x-ui (true/false)
+XUI_SUB_URL=https://sub.example.com:2096
+XUI_API_URL=https://panel.example.com:54321/secret-path
+XUI_API_TOKEN=replace-with-3x-ui-api-token
 XUI_TLS_VERIFY=true
-
-# Логин и пароль 3x-ui (если не используется API-токен)
-XUI_USERNAME=admin
-XUI_PASSWORD=change_me
-
-# Кастомный заголовок подписки (опционально)
-# SUB_TITLE=Мой VPN
 ```
 
-### Управляемые HTTP-клиенты
+`XUI_SUB_URL` — origin JSON-подписки. `XUI_API_URL` — адрес панели/API и обычно
+использует другой порт или secret path. `XUI_URL` оставлен только как совместимый
+fallback. API token предпочтительнее `XUI_USERNAME`/`XUI_PASSWORD`.
 
-AutoSub создаёт HTTP-клиенты при запуске приложения, переиспользует их connection
-pool и закрывает при shutdown. Публичные upstream-запросы используют stateless pool,
-а сессии 3x-ui изолированы по адресу панели и credentials; одновременно хранится не
-более 16 неактивных/активных panel clients.
-
-Заданы отдельные connect/read/write/pool timeouts: `5/20/10/5` секунд для API
-панели и `5/30/10/5` секунд для подписок. Pool ограничен 20 соединениями, 10
-keep-alive соединениями и expiry 30 секунд. Ответы ограничены 4 MiB для JSON API,
-8 MiB для подписки и 1 MiB для HTML входа в API-панель. Redirects автоматически не выполняются.
-
-TLS-сертификаты проверяются по умолчанию. `XUI_TLS_VERIFY=false` применяется только
-к соответствующей self-signed API-панели и не отключает проверку для публичного
-upstream pool. Режим снижает защиту от перехвата; используйте его только в доверенной
-сети. Пользовательская установка и существующие URL маршрутов не меняются.
-
-### Кэш готовых подписок
-
-Публичные JSON-ответы кэшируются внутри одного процесса после полной сборки. Кэш
-использует монотонные часы, 30 секунд fresh TTL и ещё 300 секунд stale-if-error,
-ограничен 256 LRU-записями и 256 KiB UTF-8 payload на запись. Таким образом,
-верхняя оценка хранимой полезной нагрузки — около 64 MiB; фактическое потребление
-выше из-за объектов Python и заголовков.
-
-Одновременные запросы одного ключа объединяются в одну сборку, а разные ключи
-собираются параллельно. Stale-ответ выдаётся только при временной сетевой ошибке
-или HTTP 5xx upstream. Ключи содержат SHA-256 хэши, а успешные изменения через
-админ-панель переключают поколение кэша. Локальная HTML-страница использует этот
-кэш только для проверки готовности JSON, но её HTML и request ID не кэшируются;
-admin preview кэш обходит.
-Кэш локален для одного Uvicorn-процесса; Redis для штатного однопроцессного
-развёртывания не требуется.
-
-### Представления подписки
-
-`/json/{sub_id}` всегда возвращает generated JSON независимо от `Accept` и
-User-Agent. Legacy `/sub/{sub_id}` поддерживает `?format=json` и `?format=html`;
-явный формат имеет приоритет над `Accept`, затем учитываются `application/json`,
-`text/plain` и `text/html` с `q=` weights. `*/*`, отсутствующий `Accept` и неизвестный
-клиент безопасно получают JSON, кроме обычного browser fallback по Mozilla UA.
-
-HTML создаётся локальным Jinja-template с autoescape, строгой CSP, локальным CSS,
-`Referrer-Policy: no-referrer` и `Cache-Control: no-store`. Upstream HTML, redirects,
-credentials и panel URL не вставляются в страницу. Отдельного raw/base64 формата
-AutoSub не предоставляет; machine representation остаётся совместимым JSON.
-CSS доступен по `/sub/_assets/subscription.css`, поэтому существующий Nginx location
-`/sub/` не требует расширения и не открывает admin assets.
-
-### Ограничение частоты запросов
-
-Process-local sliding-window limiter хранит не более 4096 LRU buckets и удаляет
-неактивные buckets через 20 минут. Действуют отдельные лимиты на IP: 60 запросов
-в минуту для `/json/` и `/sub/`, 20 в минуту для admin authentication/read и 10
-в минуту для `preview`, `api-test` и `discover`. Ответ `429` содержит положительный
-`Retry-After`, `X-Request-ID` и `Cache-Control: no-store`.
-
-Forwarded-заголовки учитываются только когда непосредственный peer входит в
-`AUTOSUB_TRUSTED_PROXIES`; цепочка `X-Forwarded-For` разбирается справа налево.
-Прямой клиент не может подменить свой bucket через spoofed header. Пустой allowlist
-полностью отключает доверие forwarded headers, а невалидная или global сеть
-останавливает startup. При нескольких Uvicorn workers каждый процесс имеет свой
-limiter, поэтому суммарный предел масштабируется с числом workers. Redis не нужен
-для штатного однопроцессного deployment за локальным Nginx.
-
----
-
-## 📊 Панель управления (Dashboard)
-
-Админ-панель по умолчанию работает локально. Пустой или состоящий только из пробелов `AUTOSUB_ADMIN_PASSWORD` разрешен исключительно при `AUTOSUB_HOST=127.0.0.1`, `::1` или `localhost`. При `0.0.0.0`, `::`, LAN-адресе или hostname приложение откажется запускаться без пароля.
-
-`AUTOSUB_SECRET_KEY` подписывает stateless CSRF-токены. Для существующей
-установки создайте ключ командой:
+После изменения:
 
 ```bash
-python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+systemctl restart autosub-server
+curl -fsS http://127.0.0.1:25500/health/ready
 ```
 
-Сохраните его в `/opt/autosub-server/shared/.env`. Без ключа допустим только
-временный process-secret на loopback bind; non-loopback startup требует
-ключ длиной не менее 32 символов.
+### Nginx
 
-Рекомендуется оставлять dashboard за SSH-туннелем, VPN или защищенным reverse proxy. Basic Auth без HTTPS не шифрует credentials и не защищает их от перехвата. Для подключения через SSH-туннель:
+Сначала получите TLS-сертификат для домена. Затем:
 
 ```bash
-ssh -L 25500:127.0.0.1:25500 root@YOUR_SERVER_IP
+bash /opt/autosub-server/current/setup_nginx.sh sub.example.com 2097
 ```
 
-После создания туннеля откройте в браузере: `http://127.0.0.1:25500/admin`
+Пример конфигурации находится в [`nginx-example.conf`](nginx-example.conf). Скрипт
+публикует только `/json/` и `/sub/`, проверяет конфигурацию через `nginx -t` и
+перезагружает Nginx.
 
-### Диагностика и безопасные HTTP-ответы
+В 3x-ui укажите **JSON reverse proxy URI**:
 
-Каждый ответ AutoSub содержит `X-Request-ID`. Тот же идентификатор добавляется в
-связанные записи `autosub.log` и journald, поэтому его можно использовать для поиска
-ошибки без публикации внутренних деталей. Subscription ID журналируются только как
-необратимые fingerprints, а email маскируются. Ответы также получают базовые security
-headers; административные страницы используют `Cache-Control: no-store`.
+```text
+https://sub.example.com:2097/json/
+```
 
-Все управляемые AutoSub файлы находятся внутри `/opt/autosub-server`. Код и отдельный
-`venv` каждой версии живут в `releases/<id>/`, атомарная относительная ссылка
-`current` выбирает активную версию, а `.env`, SQLite, config, лог и резервные копии
-живут в `shared/`. Systemd управляется root и запускает сервис без отдельного Unix
-пользователя; файлы и updater должны оставаться root-owned и недоступными для записи
-непривилегированным пользователям.
-
-### Миграции SQLite и резервные копии
-
-Перед фактическим повышением версии схемы AutoSub создаёт консистентную копию
-`data.db` через SQLite backup API в `/opt/autosub-server/shared/backups/`. Для новой
-или уже актуальной базы копия не создаётся. Ошибка проверки целостности, создания
-backup или миграции останавливает startup; изменение схемы и её версии откатывается.
-
-Updater также создаёт `pre-update-*.db` до атомарного switch. Обычный systemd restart
-может открыть публичный порт до того, как updater увидит readiness, поэтому при failed
-activation код автоматически откатывается, а БД автоматически не восстанавливается:
-это могло бы стереть уже принятые записи. Путь backup выводится оператору для
-fail-closed/manual recovery. Автоматический restore helper разрешён только для явно
-изолированной pre-traffic фазы при остановленном сервисе.
-
-### Приоритет назначения групп клиентам:
-
-1. **Локальная SQLite БД (`client_groups`)** — ручное и самое стабильное назначение через админ-панель.
-2. **Оверрайды (`client_group_overrides`)** — переопределения групп по email/sub_id.
-3. **3x-ui API (fallback)** — автоматическое получение групп клиентов из 3x-ui.
-
----
-
-## 🌐 Настройка Nginx
-
-### Автоматическая настройка
+Проверка:
 
 ```bash
-bash /opt/autosub-server/current/setup_nginx.sh sub.your-domain.com 2097
+curl -fsS http://127.0.0.1:25500/health
+curl -fsS http://127.0.0.1:25500/health/ready
+curl -I https://sub.example.com:2097/sub/REAL_SUB_ID
+curl -fsS https://sub.example.com:2097/json/REAL_SUB_ID
 ```
 
-### Ручная настройка
+Открытие `/sub/REAL_SUB_ID` в браузере должно показать локальный лендинг AutoSub;
+последняя команда должна вернуть JSON с профилями автовыбора.
 
-Скопируйте пример из `/opt/autosub-server/current/nginx-example.conf`:
+## Панель управления
 
-```nginx
-server {
-    listen 2097 ssl http2;
-    server_name sub.your-domain.com;
-
-    ssl_certificate /etc/letsencrypt/live/sub.your-domain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/sub.your-domain.com/privkey.pem;
-
-    # JSON subscriptions
-    location /json/ {
-        proxy_pass http://127.0.0.1:25500/json/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # Legacy URLs (serves local AutoSub HTML to browsers, JSON to VPN apps)
-    location /sub/ {
-        proxy_pass http://127.0.0.1:25500/sub/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location / {
-        return 404;
-    }
-}
-```
-
-Если Nginx расположен не на том же хосте, добавьте его IP или подсеть в `AUTOSUB_TRUSTED_PROXIES`. Не добавляйте публичные клиентские сети: forwarded-заголовки от недоверенных адресов намеренно игнорируются.
-
-Активируйте конфиг и перезапустите Nginx:
+Админ-панель остаётся локальной. С рабочего компьютера создайте туннель:
 
 ```bash
-ln -s /etc/nginx/sites-available/autosub-json /etc/nginx/sites-enabled/autosub-json
-nginx -t
-systemctl reload nginx
+ssh -L 25500:127.0.0.1:25500 root@SERVER_IP
 ```
 
----
+Откройте `http://127.0.0.1:25500/admin` и используйте
+`AUTOSUB_ADMIN_USERNAME`/`AUTOSUB_ADMIN_PASSWORD` из `shared/.env`.
 
-## 🔄 Обновление
+В панели можно:
 
-### Однострочное обновление (curl)
+1. проверить соединение с API 3x-ui;
+2. найти доступные узлы;
+3. создать профили автовыбора и выбрать стратегию;
+4. назначить профили группам клиентов;
+5. проверить итоговую подписку через preview.
+
+## Обновление
+
+Перед обновлением проверьте состояние:
+
+```bash
+systemctl status autosub-server --no-pager
+curl -fsS http://127.0.0.1:25500/health/ready
+```
+
+### Stable (`main` → последний Release)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/update.sh | bash
 ```
 
-Updater берёт неблокирующий `flock` на `/opt/autosub-server/.update.lock`, готовит
-`releases/.staging-<id>-*` и release-local `venv`, проверяет imports/assets, создаёт
-SQLite backup, затем атомарно переключает `current` и опрашивает
-`http://127.0.0.1:25500/health/ready` до 45 секунд. При ошибке он возвращает код на
-предыдущий release и проверяет `/health`. После успеха сохраняются три последних
-release, при этом current и непосредственная rollback-цель защищены. Backups живут в
-`/opt/autosub-server/shared/backups/` и не участвуют в release retention.
-Атомарный `.update-state.json` сохраняет настоящую rollback-цель: следующий запуск
-завершит прерванный rollback, даже если interruption произошёл сразу после switch.
-
-Legacy flat install мигрируется один раз без раннего удаления исходных файлов:
-`.env`, `config.json`, log и консистентная SQLite-копия переходят в `shared`, а
-предыдущий код получает отдельный rollback release/venv. Загрузка выполняется exact
-Git ref через HTTPS без fallback на другую ветку. Отдельные подписанные checksum
-metadata проект пока не публикует; это остаётся ограничением authenticity.
-
----
-
-## 🧰 Разработка и воспроизводимые зависимости
-
-Поддерживается Python 3.10 и новее. Установка production-зависимостей из lock-файла:
+Для уже установленного v3 layout эквивалентно:
 
 ```bash
-python -m pip install --require-hashes -r requirements.txt
+/opt/autosub-server/update.sh
 ```
 
-Для разработки используйте отдельное виртуальное окружение и dev lock:
+### Development (`dev`)
 
 ```bash
-python -m venv .venv
+curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/dev/update.sh \
+  | AUTOSUB_VERSION=dev bash
+```
+
+или:
+
+```bash
+AUTOSUB_VERSION=dev /opt/autosub-server/update.sh
+```
+
+### Закреплённая версия
+
+```bash
+AUTOSUB_VERSION=v3.0.4 /opt/autosub-server/update.sh
+```
+
+Обновлятор использует lock, проверяет свободное место и Python, создаёт backup
+SQLite, устанавливает зависимости с hashes, переключает `current` атомарно и ждёт
+`/health/ready`. При неуспешном запуске код автоматически возвращается на предыдущий
+release. Постоянные данные не перезаписываются.
+
+```text
+/opt/autosub-server/
+├── current -> releases/<release-id>
+├── releases/                  # код и venv релизов
+├── update.sh                  # root-owned установленный updater
+└── shared/
+    ├── .env
+    ├── config.json
+    ├── data.db
+    ├── autosub.log
+    └── backups/
+```
+
+Backup базы предназначен для ручного восстановления при повреждении данных. Обычный
+rollback кода не откатывает SQLite после того, как обновлённый сервис уже принимал
+запросы. Проверенные копии сохраняются в `/opt/autosub-server/shared/backups/`.
+
+## Публичные маршруты
+
+| Метод и путь | Назначение |
+|---|---|
+| `GET /json/{sub_id}` | всегда JSON-подписка |
+| `GET /sub/{sub_id}` | browser landing или JSON по типу клиента |
+| `GET /sub/{sub_id}?format=json` | явный JSON |
+| `GET /sub/{sub_id}?format=html` | явный локальный HTML |
+| `GET /health` | совместимая liveness-проверка |
+| `GET /health/live` | явная liveness-проверка |
+| `GET /health/ready` | готовность зависимостей процесса |
+
+Ответы содержат `X-Request-ID`; rate limit возвращает `429` и `Retry-After`.
+Подробный контракт: [`docs/API.md`](docs/API.md).
+
+## Конфигурация
+
+Основные переменные перечислены в [`.env.example`](.env.example):
+
+| Переменная | Назначение |
+|---|---|
+| `AUTOSUB_HOST`, `AUTOSUB_PORT` | локальный bind сервера |
+| `AUTOSUB_TRUSTED_PROXIES` | доверенные immediate proxy IP/CIDR |
+| `AUTOSUB_ADMIN_USERNAME/PASSWORD` | Basic Auth панели |
+| `AUTOSUB_SECRET_KEY` | HMAC-ключ CSRF |
+| `XUI_SUB_URL` | origin JSON-подписок |
+| `XUI_API_URL` | origin API панели |
+| `XUI_API_TOKEN` | рекомендуемая API-аутентификация |
+| `XUI_USERNAME/PASSWORD` | fallback login API |
+| `XUI_TLS_VERIFY` | проверка TLS upstream |
+| `SUB_TITLE`, `SUB_USERINFO` | необязательные overrides метаданных |
+
+Постоянные правила хранятся в SQLite. `shared/config.json` нужен для совместимости и
+первичного импорта; миграция помечается только после успешной транзакции.
+
+## Безопасность
+
+- Не публикуйте `127.0.0.1:25500` и `/admin` напрямую в Интернет.
+- Не добавляйте `.env`, `data.db`, логи или реальные subscription IDs в Git и issue.
+- Оставляйте `XUI_TLS_VERIFY=true`; выключайте только для осознанного локального
+  self-signed upstream.
+- Указывайте в `AUTOSUB_TRUSTED_PROXIES` только реальный Nginx. Сеть `0.0.0.0/0`
+  или `::/0` отвергается при запуске.
+- Храните `/opt/autosub-server`, unit и updater под `root`; process unit изолирует
+  файловую систему, устройства, kernel controls и разрешает запись только в `shared`.
+- При публикации через CDN добавьте грубый внешний rate limit и настройте цепочку
+  trusted proxies с учётом реального immediate peer.
+
+Инструкции по уязвимостям: [`SECURITY.md`](SECURITY.md).
+
+## Разработка
+
+```bash
+git clone https://github.com/amirim1/autosub-server.git
+cd autosub-server
+git switch dev
+python3 -m venv .venv-development
+source .venv-development/bin/activate
 python -m pip install --require-hashes -r requirements-dev.txt
-```
-
-Основные проверки:
-
-```bash
-pytest
-pytest --cov=. --cov-report=term-missing --cov-fail-under=55
+python -m pytest --cov=. --cov-branch --cov-fail-under=70
 ruff check .
-ruff format --check .
 pyright
-pip-audit -r requirements.txt --require-hashes
-bandit -c pyproject.toml -r . -x tests -ll
 ```
 
-`ruff format --check .` пока является диагностической локальной проверкой: существующий код еще не имеет единого formatter baseline, поэтому CI не запускает ее до отдельного форматирующего PR.
+Production- и dev-зависимости задаются в `requirements.in` и
+`requirements-dev.in`; `requirements*.txt` — сгенерированные lock-файлы с hashes.
+Инструкция по обновлению locks и quality gates: [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
 
-После изменения `requirements.in` или `requirements-dev.in` пересоберите оба lock-файла из чистого dev-окружения:
+CI запускает тесты на Python 3.10, 3.12 и актуальном stable 3.14, Ruff, Pyright, pip-audit, Bandit,
+ShellCheck, coverage и CodeQL. Runtime составляется только из allowlist
+[`runtime-manifest.txt`](runtime-manifest.txt); docs, tests и `.codex/` хранятся в Git,
+но не копируются в production release.
+
+## Диагностика
 
 ```bash
-python -m piptools compile --upgrade --generate-hashes --resolver=backtracking --strip-extras --no-emit-index-url --output-file=requirements.txt requirements.in
-python -m piptools compile --upgrade --generate-hashes --resolver=backtracking --strip-extras --no-emit-index-url --allow-unsafe --output-file=requirements-dev.txt requirements-dev.in
+systemctl status autosub-server --no-pager
+journalctl -u autosub-server -n 200 --no-pager
+tail -n 200 /opt/autosub-server/shared/autosub.log
+curl -v http://127.0.0.1:25500/health/ready
+nginx -t
 ```
 
----
+Частые причины:
 
-## 🛠️ Устранение неполадок
+- `502` подписки — неверный `XUI_SUB_URL`, upstream вернул не JSON, timeout или
+  ответ превысил безопасный лимит;
+- API test не проходит — перепутаны `XUI_SUB_URL` и `XUI_API_URL`, неверный token
+  или secret path панели;
+- браузер видит JSON вместо лендинга — используйте `/sub/...`, а не `/json/...`, и
+  уберите явный `?format=json`;
+- балансировщиков нет — проверьте, что профили включены, в них выбраны существующие
+  node IDs, а группа пользователя разрешает эти profile IDs;
+- `429` — дождитесь времени из `Retry-After` и проверьте trusted-proxy настройку.
 
-- **Проверка статуса службы:** `systemctl status autosub-server`
-- **Просмотр логов в реальном времени:** `journalctl -u autosub-server -f`
-- **Проверка здоровья приложения:** `curl http://127.0.0.1:25500/health`
-- **Тестирование проксирования:** `curl -k https://sub.your-domain.com:2097/json/CLIENT_SUB_ID`
+## Документация и история
+
+- [Архитектура](docs/ARCHITECTURE.md)
+- [API](docs/API.md)
+- [База данных и миграции](docs/DATABASE.md)
+- [Разработка](docs/DEVELOPMENT.md)
+- [Структура и Git workflow](docs/structure.md)
+- [CHANGELOG](CHANGELOG.md)
+- [GitHub Releases](https://github.com/amirim1/autosub-server/releases)
+
+Лицензия: [MIT](LICENSE).

@@ -100,7 +100,9 @@ class Storage:
     async def set_meta(self, key, value):
         async with self._lock:
             await self.conn.execute(
-                "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value)
+                "INSERT INTO meta (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, value),
             )
             await self.conn.commit()
 
@@ -257,7 +259,10 @@ class Storage:
         now = datetime.now(timezone.utc).isoformat()
         async with self._lock:
             await self.conn.execute(
-                "INSERT OR REPLACE INTO client_groups (sub_id, email, groups, updated_at) VALUES (?, ?, ?, ?)",
+                "INSERT INTO client_groups (sub_id, email, groups, updated_at) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(sub_id) DO UPDATE SET email=excluded.email, "
+                "groups=excluded.groups, updated_at=excluded.updated_at",
                 (sub_id, email, groups_str, now),
             )
             await self.conn.commit()
@@ -462,11 +467,13 @@ class Storage:
     async def set_probe_config(self, probe_url, probe_interval):
         async with self._lock:
             await self.conn.execute(
-                "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                "INSERT INTO meta (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 ("probe_url", probe_url),
             )
             await self.conn.execute(
-                "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                "INSERT INTO meta (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 ("probe_interval", probe_interval),
             )
             await self.conn.commit()

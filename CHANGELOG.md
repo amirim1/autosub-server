@@ -2,6 +2,29 @@
 
 All notable changes to AutoSub Server will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- Restored the safe local landing page for ordinary Mozilla/WebView requests to
+  legacy `/sub/<subId>` links even when the browser sends a JSON-preferring `Accept`
+  header; explicit formats and known VPN-client behavior remain compatible.
+- Removed the remaining constant `innerHTML` assignment from dashboard JavaScript and
+  stopped placing operator-supplied balancer names in redirect query strings.
+
+### Changed
+- Redesigned the local subscription landing page and rewrote the Russian and English
+  READMEs around first-time installation, operation, and verified `main`/`dev` flows.
+- Updated CI actions, added CodeQL and GitHub Actions Dependabot coverage, and added the
+  repository's MIT license and security policy.
+- Added current stable Python 3.14 to CI and raised the branch coverage gate from 55%
+  to 70%, below the measured 72% baseline.
+- Hardened the systemd service sandbox while preserving the root-managed deployment
+  model and `/opt/autosub-server/shared` as the only writable runtime path.
+- Validated Nginx setup inputs, made site replacement rollback-safe, enforced modern
+  TLS/timeouts, and removed the previously ignored symlink-creation failure.
+- Replaced remaining SQLite `INSERT OR REPLACE` writes with conflict-aware UPSERTs so
+  client row identity and creation time survive group updates.
+
 ## [v3.0.4] - 2026-08-11
 
 ### Fixed

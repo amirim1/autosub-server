@@ -29,7 +29,8 @@ AutoSub Server — локальный FastAPI-прокси для JSON-подп�
 2. Server determines client IP using the validated trusted-proxy allowlist and
    applies the public rate policy before cache or upstream work.
 3. `/json/` always selects generated JSON. Legacy `/sub/` applies explicit
-   `format=json|html`, weighted `Accept`, client compatibility and safe fallback rules.
+   `format=json|html` first, then identifies ordinary Mozilla browsers before using
+   weighted `Accept` and the known VPN-client/default JSON fallback.
 4. `builder.build_for_subscription()` fetches the upstream JSON subscription through
    `api_client.py`; the built result remains protected by the existing cache.
 5. For HTML, only readiness is taken from the built result; AutoSub renders its own
@@ -60,6 +61,11 @@ AutoSub Server — локальный FastAPI-прокси для JSON-подп�
 Production uses one root-managed systemd/Uvicorn process on `127.0.0.1:25500`.
 There is deliberately no `autosub` Unix user. Nginx terminates TLS and proxies only
 `/json/` and `/sub/` to the local service.
+
+The service unit runs with a strict umask, no capabilities, read-only system and
+application code, private temporary/device views, protected kernel controls, and a
+single writable path at `/opt/autosub-server/shared`. The updater itself runs outside
+the service sandbox as root so it can create and activate release directories.
 
 `/opt/autosub-server` contains `releases/<id>/`, relative symlink `current`, persistent
 `shared/`, and root-owned `update.sh`. Every complete release has immutable-ish runtime

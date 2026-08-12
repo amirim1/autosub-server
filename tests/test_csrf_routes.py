@@ -145,6 +145,34 @@ def test_successful_admin_mutations_invalidate_public_cache(client):
         assert stats["generation"] == initial["generation"] + index
 
 
+def test_autoselect_success_redirect_does_not_reflect_operator_name(client):
+    test_client, actions = client
+    token = test_client.app.state.csrf_manager.generate()
+    supplied_name = "<svg onload=alert(1)>&next=/admin/debug"
+
+    response = test_client.post(
+        "/admin/add-autoselect",
+        data={
+            "autoselect_id": "safe-id",
+            "name": supplied_name,
+            "strategy": "leastPing",
+            "_csrf": token,
+        },
+        headers=_basic(),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location.startswith("/admin?msg=")
+    assert "next=" not in location
+    assert "%3Csvg" not in location
+    assert supplied_name not in location
+    actions["add_auto"].assert_awaited_once_with(
+        "safe-id", supplied_name, strategy="leastPing"
+    )
+
+
 def test_admin_preview_bypasses_public_subscription_cache(client, monkeypatch):
     test_client, _ = client
     preview = AsyncMock(return_value=Response("preview", media_type="text/html"))
