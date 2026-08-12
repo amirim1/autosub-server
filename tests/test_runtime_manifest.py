@@ -52,6 +52,12 @@ def test_manifest_only_release_imports_entrypoint_and_finds_assets(tmp_path):
     layout = ReleaseLayout(root)
     release = layout.prepare_release(Path(), Path("runtime-manifest.txt"), "smoke-a")
     shared = root / "shared"
+    # Simulate stale flat-layout asset directories left by a v2 installation.
+    # The active immutable release must never load templates or static files from them.
+    (root / "templates").mkdir()
+    (root / "templates" / "admin.html").write_text("stale", encoding="utf-8")
+    (root / "static").mkdir()
+    (root / "static" / "dashboard.css").write_text("stale", encoding="utf-8")
     (shared / ".env").write_text(
         "AUTOSUB_HOST=127.0.0.1\nAUTOSUB_ADMIN_PASSWORD=\nAUTOSUB_SECRET_KEY=test-only-secret\n",
         encoding="utf-8",
@@ -62,7 +68,7 @@ def test_manifest_only_release_imports_entrypoint_and_finds_assets(tmp_path):
     environment.update(
         {
             "AUTOSUB_ROOT": str(root),
-            "AUTOSUB_APP_DIR": str(release),
+            "AUTOSUB_APP_DIR": str(root),
             "AUTOSUB_SHARED_DIR": str(shared),
             "AUTOSUB_ENV": str(shared / ".env"),
             "AUTOSUB_CONFIG": str(shared / "config.json"),
@@ -77,9 +83,15 @@ def test_manifest_only_release_imports_entrypoint_and_finds_assets(tmp_path):
             "-c",
             (
                 "import autosub_server; "
+                "import dashboard; "
+                "import subscription_representation; "
                 "assert autosub_server.app is not None; "
-                "assert autosub_server.static_dir.is_dir(); "
-                "assert autosub_server.subscription_css_path.is_file()"
+                "release = __import__('pathlib').Path.cwd().resolve(); "
+                "assert autosub_server.static_dir.resolve() == release / 'static'; "
+                "assert dashboard.templates_dir.resolve() == release / 'templates'; "
+                "assert subscription_representation.templates_dir.resolve() == release / 'templates'; "
+                "assert autosub_server.subscription_css_path.resolve() == release / 'static' / 'subscription.css'; "
+                "assert subscription_representation.templates.get_template('subscription.html')"
             ),
         ],
         cwd=release,

@@ -4,6 +4,7 @@ import ipaddress
 import os
 import secrets
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request, Response, Depends, Form, HTTPException, status
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, PlainTextResponse
@@ -12,7 +13,6 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import uvicorn
 
 from config import (
-    APP_DIR,
     BACKUP_DIR,
     CONFIG_PATH,
     DB_PATH,
@@ -270,7 +270,7 @@ async def rate_limit_error(request: Request, error: RateLimitExceeded):
     return response
 
 # Mount static files securely
-static_dir = APP_DIR / "static"
+static_dir = Path(__file__).resolve().parent / "static"
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 

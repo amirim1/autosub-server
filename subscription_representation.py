@@ -5,7 +5,7 @@ from urllib.parse import quote, unquote_plus
 
 from fastapi.templating import Jinja2Templates
 
-from config import APP_DIR, VERSION
+from config import VERSION
 from logging_utils import get_request_id
 
 
@@ -41,14 +41,10 @@ class AcceptedMediaType:
     position: int
 
 
-templates_dir = APP_DIR / "templates"
-if not templates_dir.exists():
-    templates_dir = Path(__file__).parent.resolve() / "templates"
+templates_dir = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(templates_dir))
 
-subscription_css_path = APP_DIR / "static" / "subscription.css"
-if not subscription_css_path.exists():
-    subscription_css_path = Path(__file__).parent.resolve() / "static" / "subscription.css"
+subscription_css_path = Path(__file__).resolve().parent / "static" / "subscription.css"
 
 
 def parse_accept_header(value):
