@@ -4,6 +4,8 @@ All notable changes to AutoSub Server will be documented in this file.
 
 ## [Unreleased]
 
+## [v3.0.6] - 2026-08-12
+
 ### Fixed
 - Resolved runtime templates and static assets relative to the active immutable
   release, preventing a legacy `AUTOSUB_APP_DIR=/opt/autosub-server` and stale
