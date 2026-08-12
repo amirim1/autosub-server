@@ -2,7 +2,7 @@
 
 ## Current baseline
 
-AutoSub Server `3.0.5` is the current production baseline. Production is
+AutoSub Server `3.0.6` is the prepared production hotfix. Production is
 `main`; integration work targets `dev`. Stable `main` entrypoints resolve the latest
 published release; `AUTOSUB_VERSION=dev` fetches the exact development branch.
 
@@ -79,13 +79,14 @@ Python 3.10+, FastAPI, Uvicorn, httpx, aiosqlite, Jinja2, pytest, pytest-asyncio
 
 ## Current State
 
-Release `v3.0.5` restores browser landing selection for JSON-preferring
+Release `v3.0.5` restored browser landing selection for JSON-preferring
 Mozilla/WebView requests, keeps explicit formats and known VPN clients compatible,
 hardens systemd/Nginx/CI, and refreshes first-time-user documentation.
 
 Runtime templates and static assets must always resolve relative to the active
 release's Python files, never an operator-controlled or legacy `AUTOSUB_APP_DIR`.
 Older flat-layout directories may remain under `/opt/autosub-server` after migration.
+Release `v3.0.6` makes this invariant independent of legacy environment values.
 
 Финальный baseline после PR №12 фиксируется полным pytest/coverage и quality gates;
 strict xfail для malformed config marker закрыт production-исправлением. Rate limiter
