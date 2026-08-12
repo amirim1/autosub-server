@@ -83,6 +83,10 @@ Release `v3.0.5` restores browser landing selection for JSON-preferring
 Mozilla/WebView requests, keeps explicit formats and known VPN clients compatible,
 hardens systemd/Nginx/CI, and refreshes first-time-user documentation.
 
+Runtime templates and static assets must always resolve relative to the active
+release's Python files, never an operator-controlled or legacy `AUTOSUB_APP_DIR`.
+Older flat-layout directories may remain under `/opt/autosub-server` after migration.
+
 Финальный baseline после PR №12 фиксируется полным pytest/coverage и quality gates;
 strict xfail для malformed config marker закрыт production-исправлением. Rate limiter
 bounded и разделяет public/admin/expensive policies; browser `/sub/` использует только
