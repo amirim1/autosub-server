@@ -4,9 +4,31 @@ All notable changes to AutoSub Server will be documented in this file.
 
 ## [Unreleased]
 
+## [v3.1.0] - 2026-08-14
+
 ### Added
-- Added a validated dashboard setting for the Xray domain rules that bypass every
-  generated balancer, while preserving the existing Russian-site list by default.
+- Added a dashboard editor for the Xray domain rules that bypass every generated
+  balancer. It accepts one `domain:`, `full:`, `keyword:`, `regexp:`, or `geosite:`
+  rule per line, ignores blank lines and leading-comment lines, and deduplicates
+  entries while preserving their order.
+- Preserved the exact existing 80-rule Russian-site list as the default for fresh and
+  upgraded installations that have not saved an override.
+
+### Changed
+- Stored the shared direct-domain configuration as a JSON list in SQLite `meta`.
+  This needs no schema migration: an absent key selects the built-in defaults and a
+  stored empty list is an intentional override.
+- Omitting all domain-direct rules now removes only that routing rule. Private-IP
+  direct routing, BitTorrent and UDP/443 blocking, and the catch-all balancer remain
+  unchanged.
+- Saving the dashboard invalidates generated-subscription cache entries immediately.
+
+### Security
+- Validate the direct-domain list before any settings are written: only supported
+  Xray prefixes are accepted, control characters and empty patterns are rejected,
+  and the input is bounded to 512 entries of at most 512 characters each.
+- Return a non-reflective HTTP 400 for invalid admin settings instead of persisting a
+  partial configuration or exposing the rejected input.
 
 ## [v3.0.6] - 2026-08-12
 
