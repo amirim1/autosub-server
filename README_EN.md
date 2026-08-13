@@ -65,6 +65,7 @@ AutoSub Server
 - separate subscription and authenticated panel HTTP pools;
 - upstream response limits, explicit timeouts, and safe GET retries;
 - local Basic Auth dashboard with CSRF and rate limiting;
+- dashboard-managed Xray domain rules for traffic that must bypass the balancer;
 - validated trusted-proxy client-IP resolution;
 - transactional SQLite migrations and pre-update backups;
 - atomic release directories, readiness checks, and automatic code rollback;
@@ -173,6 +174,13 @@ ssh -L 25500:127.0.0.1:25500 root@SERVER_IP
 Open `http://127.0.0.1:25500/admin` and use the credentials from `shared/.env`.
 The dashboard can test the panel API, discover nodes, configure profiles, assign
 group rules, and preview a generated subscription.
+
+The **Sites routed directly, without the balancer** field controls the Xray domain
+rule inserted into every generated autoselect profile. One `domain:`, `full:`,
+`keyword:`, `regexp:`, or `geosite:` rule is accepted per line; blank lines and lines
+starting with `#` are ignored. A new or upgraded installation starts with AutoSub's
+existing Russian-site list. Saving an empty field removes only this domain rule;
+private-IP direct routing and the built-in blocking rules remain active.
 
 ## Updating
 

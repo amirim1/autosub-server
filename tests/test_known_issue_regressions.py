@@ -188,6 +188,7 @@ def test_subscription_logs_do_not_include_client_email(monkeypatch):
             "enabled": True,
         }
     ]
+    storage.get_direct_domains.return_value = ["domain:example.test"]
     monkeypatch.setattr(
         builder,
         "fetch_original_subscription",

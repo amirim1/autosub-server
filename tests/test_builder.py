@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from builder import build_autoselect_profile, build_for_subscription, match_profiles
+from config import DEFAULT_DIRECT_DOMAINS
 
 
 def _selected_profile():
@@ -46,6 +47,54 @@ def test_build_autoselect_uses_probe_interval_and_strategy(configured, expected,
     strategy = result["routing"]["balancers"][0]["strategy"]
     assert strategy["type"] == expected
     assert ("settings" in strategy) is has_settings
+
+
+def test_build_autoselect_uses_default_direct_domains():
+    result = build_autoselect_profile(
+        {"remarks": "Template"},
+        [_selected_profile()],
+        {"name": "Auto"},
+        "https://probe.example/generate_204",
+        "1m",
+    )
+
+    direct_rule = next(
+        rule
+        for rule in result["routing"]["rules"]
+        if rule.get("outboundTag") == "direct" and "domain" in rule
+    )
+    assert direct_rule["domain"] == list(DEFAULT_DIRECT_DOMAINS)
+
+
+def test_build_autoselect_uses_custom_direct_domains_and_deduplicates():
+    result = build_autoselect_profile(
+        {"remarks": "Template"},
+        [_selected_profile()],
+        {"name": "Auto"},
+        "https://probe.example/generate_204",
+        "1m",
+        ["domain:example.ru", "full:login.example.ru", "domain:example.ru"],
+    )
+
+    direct_rule = next(rule for rule in result["routing"]["rules"] if "domain" in rule)
+    assert direct_rule["domain"] == ["domain:example.ru", "full:login.example.ru"]
+
+
+def test_empty_direct_domain_list_removes_only_domain_rule():
+    result = build_autoselect_profile(
+        {"remarks": "Template"},
+        [_selected_profile()],
+        {"name": "Auto"},
+        "https://probe.example/generate_204",
+        "1m",
+        [],
+    )
+
+    rules = result["routing"]["rules"]
+    assert not any("domain" in rule for rule in rules)
+    assert any(rule.get("ip") == ["geoip:private"] for rule in rules)
+    assert any(rule.get("protocol") == ["bittorrent"] for rule in rules)
+    assert rules[-1]["balancerTag"] == "Auto"
 
 
 def test_empty_subscription_is_passed_through():
@@ -95,6 +144,7 @@ def test_clean_enrichment():
     storage_mock.get_autoselects.return_value = [
         {"id": "auto", "name": "Auto", "enabled": True, "selected_node_ids": ["*"]}
     ]
+    storage_mock.get_direct_domains.return_value = ["domain:custom.example"]
 
     raw_sub = json.dumps([
         {
@@ -133,3 +183,9 @@ def test_clean_enrichment():
             vnext = settings["vnext"][0]
             assert vnext["address"] == "pl01.amirim.space"
             assert vnext["port"] == 45336
+
+        generated = next(node for node in nodes if node.get("remarks") == "Auto")
+        direct_rule = next(
+            rule for rule in generated["routing"]["rules"] if "domain" in rule
+        )
+        assert direct_rule["domain"] == ["domain:custom.example"]

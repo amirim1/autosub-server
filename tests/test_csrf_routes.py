@@ -45,6 +45,7 @@ def client(monkeypatch, tmp_path):
     fake_storage.get_group_rules.return_value = {}
     fake_storage.get_security_rules.return_value = {}
     fake_storage.get_probe_config.return_value = ("", "60s")
+    fake_storage.get_direct_domains.return_value = []
     save = AsyncMock()
     discover = AsyncMock(return_value=[])
 
@@ -110,6 +111,27 @@ def test_every_admin_post_accepts_reused_valid_token(
     assert first.status_code == 303
     assert second.status_code == 303
     assert actions[action_name].await_count == 2
+
+
+def test_admin_save_rejects_invalid_settings_without_cache_invalidation(
+    client, monkeypatch
+):
+    test_client, actions = client
+    actions["save"].side_effect = ValueError("unsafe input must not be reflected")
+    invalidate = AsyncMock()
+    monkeypatch.setattr(autosub_server, "_invalidate_subscription_cache", invalidate)
+    token = test_client.app.state.csrf_manager.generate()
+
+    response = test_client.post(
+        "/admin/save",
+        data={"_csrf": token, "direct_domains": "invalid"},
+        headers=_basic(),
+    )
+
+    assert response.status_code == 400
+    assert response.text == "Invalid settings. Request ID: " + response.headers["x-request-id"]
+    assert "unsafe input" not in response.text
+    invalidate.assert_not_awaited()
 
 
 def test_one_page_token_works_across_all_admin_forms(client):

@@ -35,8 +35,12 @@ AutoSub Server — локальный FastAPI-прокси для JSON-подп�
    `api_client.py`; the built result remains protected by the existing cache.
 5. For HTML, only readiness is taken from the built result; AutoSub renders its own
    autoescaped template and never returns the upstream body as HTML.
-6. Builder resolves client groups, group rules and autoselect definitions through `storage.py`.
-7. Profiles are normalized, generated profiles are prepended, and subscription headers are returned.
+6. Builder resolves client groups, group rules, autoselect definitions and the shared
+   direct-domain rule set through `storage.py`.
+7. Each generated autoselect profile receives the validated domain-direct rule before
+   its catch-all balancer rule. An explicitly empty list omits that rule while fixed
+   private-IP and blocking rules remain in place.
+8. Profiles are normalized, generated profiles are prepended, and subscription headers are returned.
 
 ## Module Responsibilities
 
