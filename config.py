@@ -6,7 +6,7 @@ from logger import logger
 from runtime_paths import get_autosub_root, get_release_dir, get_shared_dir
 
 
-VERSION = "3.0.6"
+VERSION = "3.1.0"
 
 DEFAULT_DIRECT_DOMAINS = (
     "domain:max.ru",
