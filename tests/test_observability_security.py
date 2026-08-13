@@ -29,6 +29,7 @@ def client(monkeypatch, tmp_path):
     fake_storage.get_group_rules.return_value = {}
     fake_storage.get_security_rules.return_value = {}
     fake_storage.get_probe_config.return_value = ("", "60s")
+    fake_storage.get_direct_domains.return_value = []
     monkeypatch.setattr(autosub_server, "storage", fake_storage)
     monkeypatch.setattr(autosub_server, "CONFIG_PATH", Path(tmp_path / "missing.json"))
     monkeypatch.setattr(autosub_server, "ensure_app_dir", lambda: None)

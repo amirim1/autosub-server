@@ -15,6 +15,11 @@ repository runs retain the repository-local default.
 - `autoselects` — autoselect definitions, strategy, selected node IDs, tag filters and enabled state.
 - `client_group_overrides` — explicit group overrides keyed by a stable key such as email or subscription identifier.
 
+The singleton `direct_domains` setting is stored as a validated JSON list in `meta`.
+An absent key means the built-in Russian-site defaults, while a stored empty list is
+an intentional override. Because this uses the existing key/value table, it does not
+change the schema version and remains compatible with existing databases.
+
 Relationships are application-enforced: `group_rules.autoselect_id` refers to an autoselect definition, while selected node IDs refer to the current node catalog. Deleting an autoselect also removes its group rules.
 
 ## Migrations

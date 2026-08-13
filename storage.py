@@ -9,7 +9,7 @@ from pathlib import Path
 import aiosqlite
 
 from logger import logger
-from config import validate_legacy_config
+from config import DEFAULT_DIRECT_DOMAINS, normalize_direct_domains, validate_legacy_config
 from database_errors import DatabaseIntegrityError
 from migrations import MIGRATIONS, SCHEMA_VERSION, prepare_database
 
@@ -408,6 +408,22 @@ class Storage:
 
     async def set_security_rules(self, rules_dict):
         await self.set_meta("security_rules", json.dumps(rules_dict, ensure_ascii=False))
+
+    # --- Direct routing domains ---
+
+    async def get_direct_domains(self):
+        raw = await self.get_meta("direct_domains")
+        if raw is None:
+            return list(DEFAULT_DIRECT_DOMAINS)
+        try:
+            return normalize_direct_domains(json.loads(raw))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            logger.warning("Stored direct domain configuration is invalid; using defaults")
+            return list(DEFAULT_DIRECT_DOMAINS)
+
+    async def set_direct_domains(self, domains):
+        normalized = normalize_direct_domains(domains)
+        await self.set_meta("direct_domains", json.dumps(normalized, ensure_ascii=False))
 
     # --- Group Rules ---
 

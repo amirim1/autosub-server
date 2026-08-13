@@ -4,6 +4,10 @@ All notable changes to AutoSub Server will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Added a validated dashboard setting for the Xray domain rules that bypass every
+  generated balancer, while preserving the existing Russian-site list by default.
+
 ## [v3.0.6] - 2026-08-12
 
 ### Fixed

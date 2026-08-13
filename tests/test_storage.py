@@ -1,5 +1,9 @@
-import pytest
 import asyncio
+import json
+
+import pytest
+
+from config import DEFAULT_DIRECT_DOMAINS
 from storage import Storage
 
 def test_storage_client_groups(tmp_path):
@@ -92,6 +96,43 @@ def test_storage_autoselect_crud_and_security(tmp_path):
         autos3 = await store.get_autoselects()
         assert not any(a["id"] == "de_auto" for a in autos3)
 
+        await store.close()
+
+    asyncio.run(_test())
+
+
+def test_direct_domains_default_and_persistence(tmp_path):
+    async def _test():
+        db_file = tmp_path / "direct-domains.db"
+        store = Storage(db_file)
+        await store.connect()
+
+        assert await store.get_direct_domains() == list(DEFAULT_DIRECT_DOMAINS)
+
+        custom = ["domain:example.ru", "full:login.example.ru"]
+        await store.set_direct_domains(custom)
+        assert await store.get_direct_domains() == custom
+
+        await store.set_direct_domains([])
+        assert await store.get_direct_domains() == []
+        await store.close()
+
+        reopened = Storage(db_file)
+        await reopened.connect()
+        assert await reopened.get_direct_domains() == []
+        assert await reopened.get_meta("schema_version") == "4"
+        await reopened.close()
+
+    asyncio.run(_test())
+
+
+def test_invalid_stored_direct_domains_fall_back_to_defaults(tmp_path):
+    async def _test():
+        store = Storage(tmp_path / "invalid-direct-domains.db")
+        await store.connect()
+        await store.set_meta("direct_domains", json.dumps(["not-an-xray-rule"]))
+
+        assert await store.get_direct_domains() == list(DEFAULT_DIRECT_DOMAINS)
         await store.close()
 
     asyncio.run(_test())

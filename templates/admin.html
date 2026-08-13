@@ -93,6 +93,14 @@
             </div>
         </div>
 
+        <!-- Direct routing domains -->
+        <div class="card">
+            <h2>🌐 Сайты напрямую, без балансировщика</h2>
+            <label>Одно правило Xray на строку</label>
+            <textarea name="direct_domains" rows="14" spellcheck="false" placeholder="domain:example.ru">{{ direct_domains_text }}</textarea>
+            <p class="muted">Поддерживаются <code>domain:</code>, <code>full:</code>, <code>keyword:</code>, <code>regexp:</code> и <code>geosite:</code>. Пустые строки и строки с <code>#</code> в начале игнорируются. Сохранение пустого поля отключает только этот список; приватные IP и системные правила маршрутизации не меняются.</p>
+        </div>
+
         <!-- Balancers List -->
         <div class="card">
             <h2>⚖️ Автовыборы (Балансировщики)</h2>
