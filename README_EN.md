@@ -65,6 +65,7 @@ AutoSub Server
 - separate subscription and authenticated panel HTTP pools;
 - upstream response limits, explicit timeouts, and safe GET retries;
 - local Basic Auth dashboard with CSRF and rate limiting;
+- dashboard-managed Xray domain rules for traffic that must bypass the balancer;
 - validated trusted-proxy client-IP resolution;
 - transactional SQLite migrations and pre-update backups;
 - atomic release directories, readiness checks, and automatic code rollback;
@@ -109,7 +110,7 @@ curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/dev/install.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/install.sh \
-  | AUTOSUB_VERSION=v3.0.6 bash
+  | AUTOSUB_VERSION=v3.1.0 bash
 ```
 
 The installer resolves `latest` through GitHub Releases, fetches the exact ref,
@@ -174,6 +175,13 @@ Open `http://127.0.0.1:25500/admin` and use the credentials from `shared/.env`.
 The dashboard can test the panel API, discover nodes, configure profiles, assign
 group rules, and preview a generated subscription.
 
+The **Sites routed directly, without the balancer** field controls the Xray domain
+rule inserted into every generated autoselect profile. One `domain:`, `full:`,
+`keyword:`, `regexp:`, or `geosite:` rule is accepted per line; blank lines and lines
+starting with `#` are ignored. A new or upgraded installation starts with AutoSub's
+existing Russian-site list. Saving an empty field removes only this domain rule;
+private-IP direct routing and the built-in blocking rules remain active.
+
 ## Updating
 
 ### Stable (`main` → latest Release)
@@ -204,7 +212,7 @@ AUTOSUB_VERSION=dev /opt/autosub-server/update.sh
 ### Pinned release
 
 ```bash
-AUTOSUB_VERSION=v3.0.6 /opt/autosub-server/update.sh
+AUTOSUB_VERSION=v3.1.0 /opt/autosub-server/update.sh
 ```
 
 The updater takes a lock, checks disk/Python requirements, backs up SQLite,

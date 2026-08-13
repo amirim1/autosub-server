@@ -31,6 +31,12 @@ JSON, который уже выдаёт 3x-ui.
 
 [English version](README_EN.md)
 
+Список сайтов, которые должны идти напрямую и обходить балансировщик, теперь можно
+редактировать в админ-панели. После установки используется прежний встроенный список
+российских сайтов. Поддерживаются правила Xray `domain:`, `full:`, `keyword:`,
+`regexp:` и `geosite:` — по одному на строку. Пустой сохранённый список отключает
+только доменное direct-правило; маршрутизация приватных IP и блокировки сохраняются.
+
 ## Как это работает
 
 ```text
@@ -118,7 +124,7 @@ curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/dev/install.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/install.sh \
-  | AUTOSUB_VERSION=v3.0.6 bash
+  | AUTOSUB_VERSION=v3.1.0 bash
 ```
 
 ### Первичная настройка
@@ -239,7 +245,7 @@ AUTOSUB_VERSION=dev /opt/autosub-server/update.sh
 ### Закреплённая версия
 
 ```bash
-AUTOSUB_VERSION=v3.0.6 /opt/autosub-server/update.sh
+AUTOSUB_VERSION=v3.1.0 /opt/autosub-server/update.sh
 ```
 
 Обновлятор использует lock, проверяет свободное место и Python, создаёт backup

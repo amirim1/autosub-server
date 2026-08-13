@@ -6,7 +6,126 @@ from logger import logger
 from runtime_paths import get_autosub_root, get_release_dir, get_shared_dir
 
 
-VERSION = "3.0.6"
+VERSION = "3.1.0"
+
+DEFAULT_DIRECT_DOMAINS = (
+    "domain:max.ru",
+    "domain:2gis.ru",
+    "domain:ads.x5.ru",
+    "domain:2gis.com",
+    "domain:aif.ru",
+    "domain:aeroflot.ru",
+    "domain:alfabank.ru",
+    "domain:avito.ru",
+    "domain:beeline.ru",
+    "domain:burgerkingrus.ru",
+    "domain:dellin.ru",
+    "domain:drive2.ru",
+    "domain:dzen.ru",
+    "domain:flypobeda.ru",
+    "domain:forbes.ru",
+    "domain:gazeta.ru",
+    "domain:gazprombank.ru",
+    "domain:gismeteo.ru",
+    "domain:gosuslugi.ru",
+    "domain:hh.ru",
+    "domain:kontur.ru",
+    "domain:kontur.host",
+    "domain:kp.ru",
+    "domain:kuper.ru",
+    "domain:lenta.ru",
+    "domain:mail.ru",
+    "domain:megamarket.ru",
+    "domain:megamarket.tech",
+    "domain:megafon.ru",
+    "domain:moex.com",
+    "domain:motivtelecom.ru",
+    "domain:ozon.ru",
+    "domain:pervye.ru",
+    "domain:psbank.ru",
+    "domain:rambler.ru",
+    "domain:rambler-co.ru",
+    "domain:rbc.ru",
+    "domain:reg.ru",
+    "domain:reviews.2gis.com",
+    "domain:rg.ru",
+    "domain:ria.ru",
+    "domain:ruwiki.ru",
+    "domain:rustore.ru",
+    "domain:rutube.ru",
+    "domain:rzd.ru",
+    "domain:sirena-travel.ru",
+    "domain:sravni.ru",
+    "domain:t-j.ru",
+    "domain:t2.ru",
+    "domain:tank-online.com",
+    "domain:taximaxim.ru",
+    "domain:tbank-online.com",
+    "domain:tildaapi.com",
+    "domain:tns-counter.ru",
+    "domain:trvl.yandex.net",
+    "domain:tutu.ru",
+    "domain:vk.com",
+    "domain:vk.ru",
+    "domain:vkvideo.ru",
+    "domain:vtb.ru",
+    "domain:x5.ru",
+    "domain:ya.ru",
+    "domain:yandex.ru",
+    "domain:yandex.net",
+    "domain:yandex.com",
+    "domain:yastatic.net",
+    "domain:yandexcloud.net",
+    "full:go.yandex",
+    "full:ru.ruwiki.ru",
+    "domain:xn--90acagbhgpca7c8c7f.xn--p1ai",
+    "domain:xn--80ajghhoc2aj1c8b.xn--p1ai",
+    "domain:xn--90aivcdt6dxbc.xn--p1ai",
+    "domain:xn--b1aew.xn--p1ai",
+    "domain:api.oneme.ru",
+    "domain:fd.oneme.ru",
+    "domain:i.oneme.ru",
+    "domain:miniapps.max.ru",
+    "domain:sdk-api.apptracer.ru",
+    "domain:st.max.ru",
+    "domain:tracker-api.vk-analytics.ru",
+)
+
+DIRECT_DOMAIN_PREFIXES = ("domain:", "full:", "keyword:", "regexp:", "geosite:")
+MAX_DIRECT_DOMAINS = 512
+MAX_DIRECT_DOMAIN_LENGTH = 512
+
+
+def normalize_direct_domains(values):
+    if not isinstance(values, (list, tuple)):
+        raise ValueError("direct domains must be a list")
+    if len(values) > MAX_DIRECT_DOMAINS:
+        raise ValueError(f"direct domains are limited to {MAX_DIRECT_DOMAINS} entries")
+
+    normalized = []
+    seen = set()
+    for raw_value in values:
+        if not isinstance(raw_value, str):
+            raise ValueError("direct domain entries must be strings")
+        value = raw_value.strip()
+        if not value:
+            continue
+        if len(value) > MAX_DIRECT_DOMAIN_LENGTH:
+            raise ValueError("direct domain entry is too long")
+        if any(character in value for character in ("\r", "\n", "\x00")):
+            raise ValueError("direct domain entry contains control characters")
+        if not value.startswith(DIRECT_DOMAIN_PREFIXES):
+            raise ValueError(
+                "direct domain entry must start with domain:, full:, keyword:, regexp:, or geosite:"
+            )
+        prefix, _, pattern = value.partition(":")
+        if not pattern.strip():
+            raise ValueError(f"direct domain entry {prefix}: has an empty pattern")
+        if value not in seen:
+            seen.add(value)
+            normalized.append(value)
+    return normalized
+
 
 AUTOSUB_ROOT = get_autosub_root()
 APP_DIR = get_release_dir()
@@ -18,9 +137,7 @@ ENV_PATHS = [
     Path(".env"),
 ]
 LOG_PATH = Path(os.environ.get("AUTOSUB_LOG", str(SHARED_DIR / "autosub.log")))
-BACKUP_DIR = Path(
-    os.environ.get("AUTOSUB_BACKUP_DIR", str(SHARED_DIR / "backups"))
-)
+BACKUP_DIR = Path(os.environ.get("AUTOSUB_BACKUP_DIR", str(SHARED_DIR / "backups")))
 
 DEFAULT_CONFIG = {
     "dashboard_enabled": True,

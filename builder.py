@@ -3,7 +3,7 @@ import json
 import time
 
 from api_client import fetch_original_subscription, normalize_subscription
-from config import env_get
+from config import DEFAULT_DIRECT_DOMAINS, env_get, normalize_direct_domains
 from fingerprint import (
     canonical_node_id,
     extract_proxy_outbound,
@@ -30,7 +30,14 @@ def allowed_autoselect_ids(groups, group_rules):
     return ids
 
 
-def build_autoselect_profile(template_profile, selected_profiles, autoselect, probe_url, probe_interval):
+def build_autoselect_profile(
+    template_profile,
+    selected_profiles,
+    autoselect,
+    probe_url,
+    probe_interval,
+    direct_domains=None,
+):
     selected_outbounds = []
     tags = []
     used = set()
@@ -96,31 +103,18 @@ def build_autoselect_profile(template_profile, selected_profiles, autoselect, pr
         "subjectSelector": tags[:],
     }
 
-    ru_bypass_domains = [
-        "domain:max.ru", "domain:2gis.ru", "domain:ads.x5.ru", "domain:2gis.com",
-        "domain:aif.ru", "domain:aeroflot.ru", "domain:alfabank.ru", "domain:avito.ru",
-        "domain:beeline.ru", "domain:burgerkingrus.ru", "domain:dellin.ru", "domain:drive2.ru",
-        "domain:dzen.ru", "domain:flypobeda.ru", "domain:forbes.ru", "domain:gazeta.ru",
-        "domain:gazprombank.ru", "domain:gismeteo.ru", "domain:gosuslugi.ru", "domain:hh.ru",
-        "domain:kontur.ru", "domain:kontur.host", "domain:kp.ru", "domain:kuper.ru",
-        "domain:lenta.ru", "domain:mail.ru", "domain:megamarket.ru", "domain:megamarket.tech",
-        "domain:megafon.ru", "domain:moex.com", "domain:motivtelecom.ru", "domain:ozon.ru",
-        "domain:pervye.ru", "domain:psbank.ru", "domain:rambler.ru", "domain:rambler-co.ru",
-        "domain:rbc.ru", "domain:reg.ru", "domain:reviews.2gis.com", "domain:rg.ru",
-        "domain:ria.ru", "domain:ruwiki.ru", "domain:rustore.ru", "domain:rutube.ru",
-        "domain:rzd.ru", "domain:sirena-travel.ru", "domain:sravni.ru", "domain:t-j.ru",
-        "domain:t2.ru", "domain:tank-online.com", "domain:taximaxim.ru", "domain:tbank-online.com",
-        "domain:tildaapi.com", "domain:tns-counter.ru", "domain:trvl.yandex.net",
-        "domain:tutu.ru", "domain:vk.com", "domain:vk.ru", "domain:vkvideo.ru",
-        "domain:vtb.ru", "domain:x5.ru", "domain:ya.ru", "domain:yandex.ru",
-        "domain:yandex.net", "domain:yandex.com", "domain:yastatic.net", "domain:yandexcloud.net",
-        "full:go.yandex", "full:ru.ruwiki.ru",
-        "domain:xn--90acagbhgpca7c8c7f.xn--p1ai", "domain:xn--80ajghhoc2aj1c8b.xn--p1ai",
-        "domain:xn--90aivcdt6dxbc.xn--p1ai", "domain:xn--b1aew.xn--p1ai",
-        "domain:api.oneme.ru", "domain:fd.oneme.ru", "domain:i.oneme.ru",
-        "domain:miniapps.max.ru", "domain:sdk-api.apptracer.ru", "domain:st.max.ru",
-        "domain:tracker-api.vk-analytics.ru",
+    if direct_domains is None:
+        direct_domains = DEFAULT_DIRECT_DOMAINS
+    direct_domains = normalize_direct_domains(direct_domains)
+
+    routing_rules = [
+        {"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"},
+        {"type": "field", "protocol": ["bittorrent"], "outboundTag": "block"},
+        {"type": "field", "port": "443", "network": "udp", "outboundTag": "block"},
     ]
+    if direct_domains:
+        routing_rules.append({"type": "field", "domain": direct_domains, "outboundTag": "direct"})
+    routing_rules.append({"type": "field", "network": "tcp,udp", "balancerTag": name})
 
     strategy_type = autoselect.get("strategy", "leastPing")
     if strategy_type not in ("leastPing", "leastLoad"):
@@ -142,13 +136,7 @@ def build_autoselect_profile(template_profile, selected_profiles, autoselect, pr
     result["routing"] = {
         "domainMatcher": "hybrid",
         "domainStrategy": "IPIfNonMatch",
-        "rules": [
-            {"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"},
-            {"type": "field", "protocol": ["bittorrent"], "outboundTag": "block"},
-            {"type": "field", "port": "443", "network": "udp", "outboundTag": "block"},
-            {"type": "field", "domain": ru_bypass_domains, "outboundTag": "direct"},
-            {"type": "field", "network": "tcp,udp", "balancerTag": name},
-        ],
+        "rules": routing_rules,
         "balancers": [
             {
                 "tag": name,
@@ -300,6 +288,7 @@ async def build_for_subscription(sub_id, storage, query="", http_manager=None):
     autoselects = await storage.get_autoselects()
     log(f"sub_id_hash={sub_ref}: autoselects in db: {[(a['id'], a['selected_node_ids']) for a in autoselects]}")
     by_id = {a.get("id"): a for a in autoselects if a.get("enabled", True)}
+    direct_domains = await storage.get_direct_domains()
 
     enriched = enrich_profiles(profiles)
     template = enriched[0] if enriched else profiles[0]
@@ -349,7 +338,14 @@ async def build_for_subscription(sub_id, storage, query="", http_manager=None):
             tags_in_pool = set(str(p.get("_tag", "")) for p in remaining_enriched)
             log(f"sub_id_hash={sub_ref}: pool tags={tags_in_pool}")
             continue
-        generated = build_autoselect_profile(template, matched, auto, cfg_probe_url, cfg_probe_interval)
+        generated = build_autoselect_profile(
+            template,
+            matched,
+            auto,
+            cfg_probe_url,
+            cfg_probe_interval,
+            direct_domains,
+        )
         if generated:
             auto_profiles.append(generated)
         else:

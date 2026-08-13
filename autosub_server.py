@@ -476,6 +476,9 @@ async def admin_save(request: Request):
         await save_admin_form(storage, parsed)
         await _invalidate_subscription_cache(request)
         return RedirectResponse(url="/admin?msg=Настройки+успешно+сохранены", status_code=303)
+    except ValueError:
+        logger.warning("Admin settings validation failed")
+        return plain_error("Invalid settings", 400)
     except Exception:
         logger.exception("Admin settings save failed")
         return plain_error("Settings save failed", 500)

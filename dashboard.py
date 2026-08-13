@@ -13,7 +13,7 @@ from builder import (
 )
 from fingerprint import node_name, profile_node_id, node_summary
 from fastapi.templating import Jinja2Templates
-from config import VERSION
+from config import normalize_direct_domains, VERSION
 from logger import logger
 
 templates_dir = Path(__file__).resolve().parent / "templates"
@@ -195,6 +195,7 @@ async def render_admin(request, storage, message="", csrf_token="", client_manag
     sec_hide_text = ",".join(security_rules.get("hide_settings_groups", ["*"]))
 
     probe_url, probe_interval = await storage.get_probe_config()
+    direct_domains = await storage.get_direct_domains()
 
     for auto in autoselects:
         auto["tag_filter_names"] = set(t.lower() for t in (auto.get("tag_filter") or []))
@@ -217,6 +218,7 @@ async def render_admin(request, storage, message="", csrf_token="", client_manag
         "csrf_token": csrf_token,
         "probe_url": probe_url,
         "probe_interval": probe_interval,
+        "direct_domains_text": "\n".join(direct_domains),
         "rules_text": rules_text,
         "overrides_text": overrides_text,
         "sec_hide_text": sec_hide_text,
@@ -343,9 +345,23 @@ def parse_overrides_text(text):
     return overrides
 
 
+def parse_direct_domains_text(text):
+    if isinstance(text, list):
+        text = text[0] if text else ""
+    values = []
+    for raw_line in str(text).splitlines():
+        value = raw_line.strip()
+        if value and not value.startswith("#"):
+            values.append(value)
+    return normalize_direct_domains(values)
+
+
 async def save_admin_form(storage, data):
     """Save admin form data to SQLite only (no more config.json dual-write)."""
     group_rules = parse_rules_text(data.get("group_rules", ""))
+    direct_domains = None
+    if "direct_domains" in data:
+        direct_domains = parse_direct_domains_text(data.get("direct_domains", ""))
     await storage.set_group_rules(group_rules)
 
     overrides = parse_overrides_text(data.get("client_group_overrides", ""))
@@ -365,6 +381,10 @@ async def save_admin_form(storage, data):
     probe_url = data.get("probe_url", "http://www.gstatic.com/generate_204")
     probe_interval = data.get("probe_interval", "60s")
     await storage.set_probe_config(probe_url, probe_interval)
+
+    # Keep compatibility with forms opened before this field was introduced.
+    if direct_domains is not None:
+        await storage.set_direct_domains(direct_domains)
 
     autoselects = await storage.get_autoselects()
     for auto in autoselects:
