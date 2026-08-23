@@ -23,23 +23,25 @@ GENERIC_PROFILE = ClientProfile(
 )
 
 # Order matters: the first UA token match wins.
+# Happ/Incy/v2RayTun default to the Xray array format so each autoselect and each
+# node appears as a separate server card with balancers embedded in the auto cards.
 _PROFILES: dict[str, ClientProfile] = {
     "happ": ClientProfile(
         id="happ",
         display_name="Happ",
-        wire_format="singbox",
+        wire_format="xray",
         ua_tokens=("happ",),
     ),
     "incy": ClientProfile(
         id="incy",
         display_name="Incy",
-        wire_format="singbox",
+        wire_format="xray",
         ua_tokens=("incy",),
     ),
     "v2raytun": ClientProfile(
         id="v2raytun",
         display_name="v2RayTun",
-        wire_format="singbox",
+        wire_format="xray",
         ua_tokens=("v2raytun",),
     ),
     "singbox": ClientProfile(

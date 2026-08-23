@@ -12,11 +12,11 @@ from generators import WIRE_FORMATS
 @pytest.mark.parametrize(
     ("user_agent", "expected_id", "expected_wire"),
     [
-        ("Happ/1.14.0 (iOS 17.5.1; iPhone15,3)", "happ", "singbox"),
-        ("Happ/1.10 (Android 14)", "happ", "singbox"),
-        ("Incy/2.1.0 (iOS 17.0)", "incy", "singbox"),
-        ("V2RayTun/3.0.5 (Android 13)", "v2raytun", "singbox"),
-        ("v2raytun/2.9 com.v2raytun.android", "v2raytun", "singbox"),
+        ("Happ/1.14.0 (iOS 17.5.1; iPhone15,3)", "happ", "xray"),
+        ("Happ/1.10 (Android 14)", "happ", "xray"),
+        ("Incy/2.1.0 (iOS 17.0)", "incy", "xray"),
+        ("V2RayTun/3.0.5 (Android 13)", "v2raytun", "xray"),
+        ("v2raytun/2.9 com.v2raytun.android", "v2raytun", "xray"),
         ("sing-box/1.11.0 (android)", "singbox", "singbox"),
         ("ClashMetaForAndroid/2.11.3.Meta", "clash", "clash"),
         ("stash-mihomo/1.18 iOS", "clash", "clash"),

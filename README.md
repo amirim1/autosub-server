@@ -288,10 +288,10 @@ rollback кода не откатывает SQLite после того, как �
 
 | Профиль | Формат по умолчанию |
 |---|---|
-| Happ | sing-box JSON (selector + urltest) |
-| Incy | sing-box JSON (selector + urltest) |
-| v2RayTun | sing-box JSON (полная поддержка балансировщика) |
-| Clash/Mihomo/Stash | Clash YAML |
+| Happ | Xray JSON-массив: карточка на каждый автоселект (балансировщик внутри) + карточка каждой ноды |
+| Incy | Xray JSON-массив (аналогично) |
+| v2RayTun | Xray JSON-массив (аналогично) |
+| Clash/Mihomo/Stash | Clash YAML (группы внутри конфига) |
 | Generic (браузеры, curl, прочее) | Xray JSON (leastPing/leastLoad + observatory) |
 
 Формат `links` не кодирует балансировочные группы — это ограничение формата
