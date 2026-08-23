@@ -186,7 +186,7 @@ def render_subscription_page(request, sub_id, *, error=False, status_code=200):
         "json_url": f"/json/{encoded_sub_id}",
         "subscribe_url": subscribe_url,
         "subscribe_url_b64": subscribe_url_b64,
-        "platform_panels": build_landing_view(subscribe_url_b64),
+        "platform_panels": build_landing_view(subscribe_url_b64, subscribe_url),
         "request_id": get_request_id() if error else "",
     }
     return templates.TemplateResponse(

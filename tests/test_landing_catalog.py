@@ -2,6 +2,7 @@ import base64
 import json
 from unittest.mock import AsyncMock
 
+import pytest
 from fastapi.testclient import TestClient
 
 import autosub_server
@@ -36,15 +37,56 @@ def test_catalog_defaults():
 
 def test_deep_link_schemes():
     entries = _entries_by_id()
-    b64 = base64.b64encode("https://vpn.example/json/abc".encode()).decode()
-    assert entries["happ"].deep_link_scheme.format(b64=b64) == f"happ://add/{b64}"
-    assert entries["v2raytun"].deep_link_scheme.format(b64=b64) == f"v2raytun://import/{b64}"
-    assert entries["incy"].deep_link_scheme.format(b64=b64) == f"incy://import/{b64}"
+    url = "https://vpn.example/json/abc"
+    b64 = base64.b64encode(url.encode()).decode()
+    assert entries["happ"].deep_link_scheme.format(b64=b64, url=url) == f"happ://add/{b64}"
+    assert (
+        entries["v2raytun"].deep_link_scheme.format(b64=b64, url=url)
+        == f"v2raytun://import/{url}"
+    )
+    assert entries["incy"].deep_link_scheme.format(b64=b64, url=url) == f"incy://import/{b64}"
+
+
+def test_deep_link_scheme_override_with_raw_url(monkeypatch):
+    monkeypatch.setattr(
+        config,
+        "ENV",
+        {
+            **config.ENV,
+            "AUTOSUB_LANDING_OVERRIDES": json.dumps(
+                {"happ": {"deep_link_scheme": "happ://add/{url}"}}
+            ),
+        },
+    )
+    url = "https://vpn.example/json/abc"
+    panels = build_landing_view("ignored-b64", url)
+    happ = next(c for c in panels[0]["clients"] if c["id"] == "happ")
+    assert happ["deep_link"] == f"happ://add/{url}"
+
+
+@pytest.mark.parametrize(
+    "scheme",
+    ["javascript:alert(1)", "happ://add/missing-placeholder", "no-scheme/{b64}", 123],
+)
+def test_deep_link_scheme_override_validation(monkeypatch, scheme):
+    monkeypatch.setattr(
+        config,
+        "ENV",
+        {
+            **config.ENV,
+            "AUTOSUB_LANDING_OVERRIDES": json.dumps(
+                {"happ": {"deep_link_scheme": scheme}}
+            ),
+        },
+    )
+    entries = _entries_by_id()
+    assert entries["happ"].deep_link_scheme == "happ://add/{b64}"
 
 
 def test_build_landing_view_covers_platforms_and_import_only_clients():
-    b64 = "c3Vic2NyaXB0aW9u"
-    panels = build_landing_view(b64)
+    url = "https://vpn.example/json/abc"
+    b64 = base64.b64encode(url.encode()).decode()
+    panels = build_landing_view(b64, url)
     assert [panel["id"] for panel in panels] == [platform for platform, _ in PLATFORMS]
 
     by_platform = {panel["id"]: {c["id"]: c for c in panel["clients"]} for panel in panels}
@@ -72,7 +114,7 @@ def test_overrides_add_download_links(monkeypatch):
             ),
         },
     )
-    panels = build_landing_view("x")
+    panels = build_landing_view("x", "https://vpn.example/json/abc")
     by_platform = {panel["id"]: {c["id"]: c for c in panel["clients"]} for panel in panels}
     assert by_platform["android"]["incy"]["downloads"]["android"] == "https://incy.example/app"
 

@@ -4,6 +4,15 @@ All notable changes to AutoSub Server will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Landing stylesheet is now versioned by app version (`?v=`), fixing stale-cache
+  rendering after updates (tabs/cards appeared unstyled for 24h).
+- v2RayTun deep link switched to the documented raw-URL form
+  (`v2raytun://import/{url}`); deep-link schemes became overridable per client via
+  `AUTOSUB_LANDING_OVERRIDES` (`deep_link_scheme` with `{b64}` or `{url}`
+  placeholder) — Happ desktop does not parse `happ://add/{base64}` deep links,
+  so the raw-URL variant can be enabled without code changes.
+
 ### Added
 - Redesigned public landing page (`/sub/` HTML): platform tabs (Android,
   Android TV, iOS, Windows, macOS — CSS-only, no JavaScript), per-client cards
