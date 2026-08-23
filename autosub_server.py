@@ -307,13 +307,7 @@ async def subscription_stylesheet():
     )
 
 
-async def _get_cached_subscription(request, sub_id, query, wire_format="xray", client_id="generic"):
-    logger.info(
-        "Subscription request sub_id_hash=%s client=%s wire_format=%s",
-        fingerprint_secret(sub_id),
-        client_id,
-        wire_format,
-    )
+async def _get_cached_subscription(request, sub_id, query, wire_format="xray"):
     subscription_cache = request.app.state.subscription_cache
     cache_key = await subscription_cache.make_key(
         sub_id,
@@ -350,7 +344,7 @@ async def handle_json_route(sub_id: str, request: Request):
         return json_error("Unsupported subscription format", 400)
 
     try:
-        client_profile = resolve_client_profile(
+        resolve_client_profile(
             client_values=request.query_params.getlist("client"),
             user_agent=request.headers.get("user-agent", ""),
         )
@@ -380,7 +374,7 @@ async def handle_json_route(sub_id: str, request: Request):
 
     try:
         output, ctype, sub_headers = await _get_cached_subscription(
-            request, sub_id, query, wire_format, client_profile.id
+            request, sub_id, query, wire_format
         )
         
         SKIP_HEADERS = {
