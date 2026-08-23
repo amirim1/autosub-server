@@ -18,9 +18,11 @@ from generators import (
     _block_outbound,
     _direct_outbound,
     build_clash_document,
+    build_links_document,
     build_singbox_document,
     build_xray_profile,
     dumps_clash,
+    encode_links_payload,
 )
 from logger import log
 from logging_utils import fingerprint_secret, mask_email
@@ -311,6 +313,13 @@ async def build_for_subscription(sub_id, storage, query="", http_manager=None, o
             document = build_singbox_document(nodes, groups, **generator_kwargs)
             payload = json.dumps(document, ensure_ascii=False, separators=(",", ":"))
             generated_type = "application/json; charset=utf-8"
+        elif format_key == "links":
+            links = build_links_document(nodes)
+            if not links:
+                log(f"sub_id_hash={sub_ref}: no convertible nodes for links, passthrough")
+                return original_text, content_type, sub_headers
+            payload = encode_links_payload(links)
+            generated_type = "text/plain; charset=utf-8"
         else:
             document = build_clash_document(nodes, groups, **generator_kwargs)
             payload = dumps_clash(document)

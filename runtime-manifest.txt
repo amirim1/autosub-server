@@ -5,6 +5,7 @@ api_client.py
 autosub_server.py
 balancer.py
 builder.py
+client_profiles.py
 config.example.json
 config.py
 csrf.py

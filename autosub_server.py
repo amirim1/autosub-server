@@ -38,6 +38,7 @@ from subscription_representation import (
     strip_format_query,
     subscription_css_path,
 )
+from client_profiles import UnknownClientError, resolve_client_profile
 from builder import build_for_subscription, discover_nodes_from_sub_id, resolve_security_flags
 from dashboard import (
     render_admin,
@@ -342,6 +343,14 @@ async def handle_json_route(sub_id: str, request: Request):
     except UnsupportedSubscriptionFormat:
         return json_error("Unsupported subscription format", 400)
 
+    try:
+        resolve_client_profile(
+            client_values=request.query_params.getlist("client"),
+            user_agent=request.headers.get("user-agent", ""),
+        )
+    except UnknownClientError:
+        return json_error("Unsupported client", 400)
+
     wire_format = resolve_wire_format(
         is_json_route=is_json_route,
         format_values=request.query_params.getlist("format"),
@@ -390,7 +399,7 @@ async def handle_json_route(sub_id: str, request: Request):
                     header_val = f"base64:{base64.b64encode(header_val.encode('utf-8')).decode('ascii')}"
             headers[key] = header_val
             
-        if "json" in ctype or "yaml" in ctype:
+        if ctype.startswith(("application/json", "text/yaml", "text/plain")):
             media_type = ctype
         else:
             media_type = "application/json; charset=utf-8"

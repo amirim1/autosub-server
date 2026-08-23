@@ -1,7 +1,9 @@
-"""Subscription payload generators for Xray, sing-box and Clash.Meta formats."""
+"""Subscription payload generators for Xray, sing-box, Clash.Meta and share-link formats."""
 
+import base64
 import copy
 import json
+from urllib.parse import quote, urlencode
 
 import yaml
 
@@ -18,7 +20,7 @@ from fingerprint import node_name, unique_tag
 from logger import log
 
 
-WIRE_FORMATS = ("xray", "singbox", "clash")
+WIRE_FORMATS = ("xray", "singbox", "clash", "links")
 
 URLTEST_TOLERANCE_MS = 50
 UNSUPPORTED_DOMAIN_PREFIXES = ("regexp:", "geosite:")
@@ -722,3 +724,158 @@ def build_clash_document(nodes, groups, *, probe_url, probe_interval, direct_dom
 
 def dumps_clash(document):
     return yaml.safe_dump(document, allow_unicode=True, sort_keys=False, default_flow_style=False)
+
+
+# --- Share-link (base64) generation ---
+
+
+def _transport_link_params(network, stream):
+    params = {}
+    if network == "ws":
+        ws = stream.get("wsSettings") or {}
+        params["type"] = "ws"
+        params["path"] = str(ws.get("path") or "/")
+        host = (ws.get("headers") or {}).get("Host")
+        if host:
+            params["host"] = str(host)
+    elif network == "grpc":
+        grpc = stream.get("grpcSettings") or {}
+        params["type"] = "grpc"
+        params["serviceName"] = str(grpc.get("serviceName") or "")
+    elif network == "httpupgrade":
+        upgrade = stream.get("httpupgradeSettings") or {}
+        params["type"] = "httpupgrade"
+        params["path"] = str(upgrade.get("path") or "/")
+        if upgrade.get("host"):
+            params["host"] = str(upgrade["host"])
+    else:
+        params["type"] = "tcp"
+    return params
+
+
+def _tls_link_params(security, stream):
+    params = {}
+    if security not in ("tls", "reality", "xtls"):
+        return params
+    sub = _tls_sub_settings(security, stream)
+    params["security"] = "tls" if security == "xtls" else security
+    if sub.get("serverName"):
+        params["sni"] = str(sub["serverName"])
+    fingerprint = sub.get("fingerprint") or ("chrome" if security == "reality" else None)
+    if fingerprint:
+        params["fp"] = str(fingerprint)
+    if sub.get("alpn"):
+        alpn = sub["alpn"]
+        params["alpn"] = ",".join(str(a) for a in alpn) if isinstance(alpn, list) else str(alpn)
+    if security == "reality":
+        params["pbk"] = str(sub.get("publicKey") or "")
+        params["sid"] = str(sub.get("shortId") or "")
+    if sub.get("allowInsecure") or sub.get("insecure"):
+        params["allowInsecure"] = "1"
+    return params
+
+
+def to_share_link(outbound, tag):
+    """Convert an Xray outbound into a standard share-link URI, or None."""
+    if not isinstance(outbound, dict):
+        return None
+    protocol = str(outbound.get("protocol", "")).lower()
+    settings = outbound.get("settings") or {}
+    network, security, stream = _stream_parts(outbound)
+
+    fragment = quote(str(tag or ""), safe="")
+
+    if protocol == "vmess":
+        vnext, user = _first_vnext(settings)
+        address = vnext.get("address")
+        port = vnext.get("port")
+        uuid_value = user.get("id")
+        if not (address and port and uuid_value):
+            return None
+        ws = stream.get("wsSettings") or {}
+        payload = {
+            "v": "2",
+            "ps": str(tag or ""),
+            "add": str(address),
+            "port": str(port),
+            "id": str(uuid_value),
+            "aid": str(user.get("alterId") or 0),
+            "scy": str(user.get("security") or "auto"),
+            "net": network,
+            "type": "none",
+            "host": str((ws.get("headers") or {}).get("Host") or ""),
+            "path": str(ws.get("path") or "") if network == "ws" else "",
+            "tls": "tls" if security in ("tls", "reality", "xtls") else "",
+            "sni": str(_tls_sub_settings(security, stream).get("serverName") or ""),
+        }
+        encoded = base64.b64encode(
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        ).decode("ascii")
+        return f"vmess://{encoded}"
+
+    if protocol == "vless":
+        vnext, user = _first_vnext(settings)
+        address = vnext.get("address")
+        port = vnext.get("port")
+        uuid_value = user.get("id")
+        if not (address and port and uuid_value):
+            return None
+        params = {"encryption": "none"}
+        if user.get("flow"):
+            params["flow"] = str(user["flow"])
+        params.update(_transport_link_params(network, stream))
+        params.update(_tls_link_params(security, stream))
+        query = urlencode(params, quote_via=quote, safe="")
+        return f"vless://{uuid_value}@{address}:{port}?{query}#{fragment}"
+
+    if protocol == "trojan":
+        server = _first_server(settings)
+        address = server.get("address")
+        port = server.get("port")
+        password = server.get("password")
+        if not (address and port and password):
+            return None
+        params = _transport_link_params(network, stream)
+        tls_params = _tls_link_params("tls", stream) if security in ("tls", "reality", "xtls") else {}
+        if security not in ("tls", "reality", "xtls"):
+            tls_params["security"] = "none"
+        params.update(tls_params)
+        query = urlencode(params, quote_via=quote, safe="")
+        return (
+            f"trojan://{quote(str(password), safe='')}@{address}:{port}?{query}#{fragment}"
+        )
+
+    if protocol == "shadowsocks":
+        server = _first_server(settings)
+        address = server.get("address")
+        port = server.get("port")
+        password = server.get("password")
+        method = server.get("method")
+        if not (address and port and password and method):
+            return None
+        userinfo = base64.b64encode(f"{method}:{password}".encode("utf-8")).decode("ascii")
+        plugin_part = ""
+        return f"ss://{userinfo}@{address}:{port}{plugin_part}#{fragment}"
+
+    return None
+
+
+def build_links_document(nodes):
+    """Convert [(tag, outbound)] into a list of share-link URIs."""
+    links = []
+    seen_tags = set()
+    for tag, outbound in nodes:
+        if tag in seen_tags:
+            continue
+        link = to_share_link(outbound, tag)
+        if link is None:
+            log(f"WARNING: Node '{tag}' is not convertible to a share link, skipped")
+            continue
+        seen_tags.add(tag)
+        links.append(link)
+    return links
+
+
+def encode_links_payload(links):
+    joined = "\n".join(links)
+    return base64.b64encode(joined.encode("utf-8")).decode("ascii")

@@ -5,6 +5,7 @@ from urllib.parse import quote, unquote_plus
 
 from fastapi.templating import Jinja2Templates
 
+from client_profiles import detect_client_profile
 from config import VERSION
 from logging_utils import get_request_id
 
@@ -40,27 +41,21 @@ _WIRE_FORMAT_ALIASES = {
     "clash-meta": "clash",
     "clash.meta": "clash",
     "mihomo": "clash",
+    "links": "links",
+    "base64": "links",
 }
 
 _JSON_FORMAT_VALUES = frozenset({"json"}) | set(_WIRE_FORMAT_ALIASES)
 
-_SINGBOX_AGENTS = ("sing-box", "singbox")
-_CLASH_AGENTS = ("clash", "mihomo", "stash")
-
 
 def resolve_wire_format(*, is_json_route, format_values=(), user_agent=""):
-    """Resolve the requested wire format: xray | singbox | clash."""
+    """Resolve the requested wire format: xray | singbox | clash | links."""
     for value in format_values or ():
         key = str(value).strip().lower()
         resolved = _WIRE_FORMAT_ALIASES.get(key)
         if resolved is not None:
             return resolved
-    normalized_agent = str(user_agent or "").lower()
-    if any(agent in normalized_agent for agent in _SINGBOX_AGENTS):
-        return "singbox"
-    if any(agent in normalized_agent for agent in _CLASH_AGENTS):
-        return "clash"
-    return "xray"
+    return detect_client_profile(user_agent=user_agent).wire_format
 
 
 class UnsupportedSubscriptionFormat(ValueError):
@@ -153,10 +148,11 @@ def select_subscription_representation(
 
 
 def strip_format_query(raw_query):
+    stripped_names = {"format", "client"}
     retained = []
     for component in str(raw_query or "").split("&"):
         encoded_name = component.partition("=")[0]
-        if unquote_plus(encoded_name) == "format":
+        if unquote_plus(encoded_name) in stripped_names:
             continue
         retained.append(component)
     return "&".join(retained)

@@ -29,6 +29,30 @@ service never reports ready.
 
 Fetches the original 3x-ui subscription and returns generated JSON. `sub_id` is the subscription/client identifier. This endpoint remains JSON even when `Accept: text/html` or a browser User-Agent is supplied. Query parameters are passed to the builder/upstream path as supported by the existing implementation. Responses may include subscription metadata headers. Rate-limit failures return HTTP 429 with a JSON error body and `Retry-After`; unexpected failures return HTTP 500.
 
+#### Client profiles and wire formats
+
+The connecting client is resolved with priority: explicit query parameter →
+`User-Agent` detection → generic fallback. The profile selects a default wire
+format; an explicit `?format=` value overrides it.
+
+| Profile | UA tokens | Default format |
+|---|---|---|
+| `happ` | `happ` | `singbox` |
+| `incy` | `incy` | `singbox` |
+| `v2raytun` | `v2raytun` | `singbox` |
+| `singbox` | `sing-box`, `singbox` | `singbox` |
+| `clash` | `clash`, `mihomo`, `stash` | `clash` |
+| `generic` | anything else (browsers, curl) | `xray` |
+
+Explicit wire formats via `?format=`: `xray`, `singbox`, `clash`,
+`links`/`base64`. The `links` format returns a Base64-encoded list of standard
+share-link URIs (`vless://`, `vmess://`, `trojan://`, `ss://`) as
+`text/plain; charset=utf-8`; note that share links cannot encode balancer
+groups, so server-side urltest/selector groups are only available in the other
+formats. Unknown or repeated `?client=` values return HTTP 400. On `/json/`
+the raw query is forwarded upstream as-is; on `/sub/` both `format` and
+`client` control parameters are stripped before forwarding.
+
 ### `GET /sub/{sub_id}`
 
 Legacy-compatible route with two representations:
@@ -43,7 +67,8 @@ WebView that is not a known subscription client receives local HTML even when it
 browsers. For other callers, weighted `Accept` selects `application/json`,
 `text/plain`, or `text/html`; known subscription clients and unknown/default `*/*`
 requests fall back to JSON. Unsupported or repeated `format` values return HTTP 400
-without reflecting the value. AutoSub has no separate raw/base64 representation.
+without reflecting the value. The `client` control parameter is accepted alongside
+`format` (see the client-profile table above) and is stripped from the upstream query.
 
 The HTML response uses a local autoescaped template, strict self-only CSP,
 `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, and no external assets.
