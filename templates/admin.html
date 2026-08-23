@@ -89,8 +89,17 @@
                 <div>
                     <label>Probe interval</label>
                     <input type="text" name="probe_interval" value="{{ probe_interval }}">
+                    <p class="muted" style="margin:4px 0 0;">Минимум в генерации — 60s (env <code>AUTOSUB_MIN_PROBE_INTERVAL</code>).</p>
                 </div>
             </div>
+        </div>
+
+        <!-- Sticky routing domains -->
+        <div class="card">
+            <h2>🔒 Гео-чувствительные сайты (липкая маршрутизация)</h2>
+            <label>Одно правило Xray на строку — всегда через первую ноду балансировщика</label>
+            <textarea name="sticky_domains" rows="6" spellcheck="false" placeholder="domain:netflix.com">{{ sticky_domains_text }}</textarea>
+            <p class="muted">Домены банков, стриминга и API с привязкой сессии к IP. Маршрутизируются на фиксированную ноду вместо балансировщика. Приоритет выше, чем у прямых доменов: если домен есть в обоих списках, он пойдёт через ноду. Поддерживаются те же префиксы, что и в прямых доменах.</p>
         </div>
 
         <!-- Direct routing domains -->
@@ -131,6 +140,10 @@
             <p class="muted" style="margin-top:8px;">ID: <code>{{ auto.id }}</code> &middot; стратегия: <code>{{ auto.strategy }}</code> &middot; выбрано нод: {% if auto.tag_filter_count %}{{ auto.tag_filter_count }}{% else %}все{% endif %}</p>
 
             <div class="toolbar">
+                <label class="check" style="cursor:pointer;">
+                    <input type="checkbox" name="country_scope_{{ auto.id }}" {% if auto.country_scope %}checked{% endif %}>
+                    <span>Только одна страна (без скачков IP между странами)</span>
+                </label>
                 <label class="check" style="cursor:pointer;">
                     <input type="checkbox" name="mode_{{ auto.id }}" value="*" {% if not auto.tag_filter_count %}checked{% endif %}>
                     <span>Все ноды пользователя</span>

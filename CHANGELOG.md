@@ -4,6 +4,23 @@ All notable changes to AutoSub Server will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Session-sticky balancer generation: `sticky_domains` (meta) route geo-sensitive
+  services through a fixed first node, and per-autoselect `country_scope` (schema v5)
+  restricts auto-balancing to a single detected country group.
+- New subscription output formats: `singbox` and `clash` via `/json/{sub_id}?format=…`
+  or automatic client User-Agent detection on `/sub/`; Xray remains the default and
+  is byte-compatible.
+- DNS/egress coupling: generated Xray configs route resolver traffic through the
+  same sticky/scoped path; sing-box DNS servers use `detour` to the pinned target.
+
+### Changed
+- Generated health-check intervals are clamped to a 60s anti-flapping floor,
+  overridable with `AUTOSUB_MIN_PROBE_INTERVAL`.
+- Strategy validation now shares one whitelist (`config.SUPPORTED_AUTOSELECT_STRATEGIES`)
+  across builder, storage and dashboard; new modules `balancer.py` and `generators.py`.
+- PyYAML added as a runtime dependency for Clash output serialization.
+
 ## [v3.1.0] - 2026-08-14
 
 ### Added

@@ -47,7 +47,7 @@ def test_wal_backup_is_consistent_old_version_and_contains_committed_data(
 
     assert backup_path is not None
     assert backup_path.parent == backup_root
-    assert backup_path.name.startswith("data-v1-before-v4-")
+    assert backup_path.name.startswith("data-v1-before-v5-")
     backup = sqlite3.connect(backup_path)
     assert backup.execute("PRAGMA quick_check").fetchone()[0] == "ok"
     assert backup.execute("PRAGMA foreign_key_check").fetchall() == []
@@ -175,7 +175,7 @@ def test_retries_create_unique_backups_without_overwriting(
                 ).connect()
 
     asyncio.run(exercise())
-    backups = list(backup_root.glob("data-v1-before-v4-*.db"))
+    backups = list(backup_root.glob("data-v1-before-v5-*.db"))
     assert len(backups) == 2
     assert len({path.name for path in backups}) == 2
     assert all(_version(path) == "1" for path in backups)

@@ -274,7 +274,9 @@ rollback кода не откатывает SQLite после того, как �
 
 | Метод и путь | Назначение |
 |---|---|
-| `GET /json/{sub_id}` | всегда JSON-подписка |
+| `GET /json/{sub_id}` | всегда JSON-подписка (Xray) |
+| `GET /json/{sub_id}?format=singbox` | конфиг для sing-box |
+| `GET /json/{sub_id}?format=clash` | подписка Clash.Meta (YAML) |
 | `GET /sub/{sub_id}` | browser landing или JSON по типу клиента |
 | `GET /sub/{sub_id}?format=json` | явный JSON |
 | `GET /sub/{sub_id}?format=html` | явный локальный HTML |
@@ -284,6 +286,17 @@ rollback кода не откатывает SQLite после того, как �
 
 Ответы содержат `X-Request-ID`; rate limit возвращает `429` и `Retry-After`.
 Подробный контракт: [`docs/API.md`](docs/API.md).
+
+### Балансировка и гео-чувствительные сервисы
+
+Сгенерированные балансировщики исключают «разрыв сессий» и скачки IP между странами:
+
+- `sticky_domains` (админ-панель) маршрутизируются через фиксированную ноду — банки,
+  стриминг и API с привязкой к IP получают стабильный egress; DNS идёт тем же путём.
+- Режим **«Только одна страна»** у балансировщика ограничивает авто-выбор нодами
+  одной страны (flag-эмодзи или название), поэтому переподключения не меняют страну.
+- Интервал health-check принудительно не ниже 60s (`AUTOSUB_MIN_PROBE_INTERVAL`),
+  чтобы узлы не переключались посреди сессии.
 
 ## Конфигурация
 
@@ -301,6 +314,7 @@ rollback кода не откатывает SQLite после того, как �
 | `XUI_USERNAME/PASSWORD` | fallback login API |
 | `XUI_TLS_VERIFY` | проверка TLS upstream |
 | `SUB_TITLE`, `SUB_USERINFO` | необязательные overrides метаданных |
+| `AUTOSUB_MIN_PROBE_INTERVAL` | пол интервала health-check в генерации (60s) |
 
 Постоянные правила хранятся в SQLite. `shared/config.json` нужен для совместимости и
 первичного импорта; миграция помечается только после успешной транзакции.

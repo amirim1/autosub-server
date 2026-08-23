@@ -1,7 +1,7 @@
 from database_errors import DatabaseIntegrityError, UnsupportedSchemaVersionError
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 APPLICATION_TABLES = {
     "meta",
     "client_groups",
@@ -119,10 +119,13 @@ async def validate_legacy_source(connection, version):
                 required = required | {"tag"}
                 forbidden.remove("tag")
         elif table == "autoselects":
-            forbidden = {"tag_filter"}
+            forbidden = {"tag_filter", "country_scope"}
             if version >= 3:
                 required = required | {"tag_filter"}
-                forbidden.clear()
+                forbidden.discard("tag_filter")
+            if version >= 5:
+                required = required | {"country_scope"}
+                forbidden.discard("country_scope")
         await _require_columns(connection, table, required, forbidden)
 
 
@@ -143,3 +146,5 @@ async def validate_schema(connection, version=SCHEMA_VERSION):
     if version >= 4:
         await _require_index(connection, "client_groups", "idx_client_groups_email", ["email"])
         await _require_index(connection, "node_catalog", "idx_node_catalog_name", ["name"])
+    if version >= 5:
+        await _require_added_column(connection, "autoselects", "country_scope", "0")

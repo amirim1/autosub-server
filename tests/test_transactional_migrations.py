@@ -63,7 +63,7 @@ def test_failure_rolls_back_entire_upgrade_and_retry_succeeds(
 
         retry = Storage(db_path)
         await retry.connect()
-        assert await retry.get_meta("schema_version") == "4"
+        assert await retry.get_meta("schema_version") == "5"
         await retry.close()
 
     asyncio.run(exercise())
@@ -82,7 +82,7 @@ def test_missing_migration_step_fails_without_version_change(tmp_path, legacy_db
     assert _database_state(db_path)[0] == "1"
 
 
-@pytest.mark.parametrize("value", ["5", "-1", "not-a-version", "01"])
+@pytest.mark.parametrize("value", ["6", "-1", "not-a-version", "01"])
 def test_unsupported_or_malformed_versions_fail(
     tmp_path, legacy_db_factory, value
 ):
@@ -157,9 +157,9 @@ def test_two_concurrent_startups_apply_each_migration_once(
     tmp_path, legacy_db_factory
 ):
     db_path = legacy_db_factory(tmp_path / "concurrent.db", 1, wal=True)
-    calls = {version: 0 for version in range(2, 5)}
+    calls = {version: 0 for version in range(2, 6)}
     steps = dict(MIGRATIONS)
-    for version in range(2, 5):
+    for version in range(2, 6):
         original = MIGRATIONS[version]
 
         async def counted(connection, *, _version=version, _apply=original.apply):
@@ -176,8 +176,8 @@ def test_two_concurrent_startups_apply_each_migration_once(
         await second.close()
 
     asyncio.run(exercise())
-    assert calls == {2: 1, 3: 1, 4: 1}
-    assert _database_state(db_path)[0] == "4"
+    assert calls == {2: 1, 3: 1, 4: 1, 5: 1}
+    assert _database_state(db_path)[0] == "5"
     assert _database_state(db_path)[2] == [("legacy-node", "Legacy")]
 
 
@@ -197,6 +197,6 @@ def test_startup_failure_log_has_versions_without_sensitive_details(
 
     caplog.set_level(logging.ERROR, logger="autosub")
     asyncio.run(exercise())
-    assert "current_version=1 target_version=4" in caplog.text
+    assert "current_version=1 target_version=5" in caplog.text
     assert sensitive not in caplog.text
     assert all(getattr(record, "request_id", None) == "-" for record in caplog.records)
