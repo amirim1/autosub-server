@@ -246,7 +246,7 @@ stored under `/opt/autosub-server/shared/backups/`.
 | `GET /json/{sub_id}?client=happ\|incy\|v2raytun` | client profile override (unknown → 400) |
 | `GET /sub/{sub_id}` | browser landing or JSON by caller type |
 | `GET /sub/{sub_id}?format=json` | explicit JSON |
-| `GET /sub/{sub_id}?format=html` | explicit local HTML |
+| `GET /sub/{sub_id}?format=html` | landing: platform tabs, client download links, deep-link "Add keys" |
 | `GET /health` | compatible liveness endpoint |
 | `GET /health/live` | explicit liveness endpoint |
 | `GET /health/ready` | in-process dependency readiness |

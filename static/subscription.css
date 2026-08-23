@@ -264,10 +264,158 @@ h1 {
     .button {
         width: 100%;
     }
+
+    .client-actions {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .client-actions .button {
+        flex: 1;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
     .button {
         transition: none;
     }
+}
+
+.section-title {
+    margin: 34px 0 0;
+    font-size: 1.35rem;
+    letter-spacing: -0.02em;
+}
+
+.platform-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 18px;
+}
+
+.tab-radio {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.tab-label {
+    padding: 9px 14px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 999px;
+    background: rgba(15, 30, 50, 0.6);
+    color: #b6c5d8;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 650;
+    transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+.tab-radio:checked + .tab-label {
+    border-color: #38bdf8;
+    background: rgba(2, 132, 199, 0.2);
+    color: #e7f6ff;
+}
+
+.tab-radio:focus-visible + .tab-label {
+    outline: 3px solid rgba(125, 211, 252, 0.3);
+    outline-offset: 2px;
+}
+
+.platform-panels {
+    margin-top: 14px;
+}
+
+.platform-panel {
+    display: none;
+    gap: 10px;
+    grid-template-columns: 1fr;
+}
+
+#tab-android:checked ~ .platform-panels .panel-android,
+#tab-android-tv:checked ~ .platform-panels .panel-android-tv,
+#tab-ios:checked ~ .platform-panels .panel-ios,
+#tab-windows:checked ~ .platform-panels .panel-windows,
+#tab-macos:checked ~ .platform-panels .panel-macos {
+    display: grid;
+}
+
+.client-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 14px 16px;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 16px;
+    background: rgba(15, 30, 50, 0.72);
+}
+
+.client-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.client-name {
+    color: #f1f6fc;
+    font-weight: 750;
+}
+
+.client-badge {
+    padding: 4px 8px;
+    border: 1px solid rgba(52, 211, 153, 0.4);
+    border-radius: 999px;
+    color: #6ee7b7;
+    font-size: 0.66rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.client-actions {
+    display: flex;
+    gap: 10px;
+    margin-left: auto;
+}
+
+.button.small {
+    min-height: 40px;
+    padding: 9px 14px;
+    font-size: 0.86rem;
+}
+
+.step-note {
+    margin: 16px 0 0;
+    color: #8fa2ba;
+    font-size: 0.8rem;
+    line-height: 1.55;
+}
+
+.advanced {
+    margin-top: 30px;
+    border-top: 1px solid rgba(148, 163, 184, 0.13);
+    padding-top: 18px;
+}
+
+.advanced summary {
+    color: #7dd3fc;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.advanced-url {
+    margin: 14px 0 0;
+    color: #8fa2ba;
+    font-size: 0.78rem;
+    overflow-wrap: anywhere;
+}
+
+.advanced-url code {
+    color: #dbeafe;
 }
