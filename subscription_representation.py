@@ -1,3 +1,6 @@
+"""Subscription representation selection and local landing page rendering."""
+
+import base64
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -6,7 +9,8 @@ from urllib.parse import quote, unquote_plus
 from fastapi.templating import Jinja2Templates
 
 from client_profiles import detect_client_profile
-from config import VERSION
+from config import VERSION, env_get
+from landing_catalog import build_landing_view
 from logging_utils import get_request_id
 
 
@@ -158,13 +162,31 @@ def strip_format_query(raw_query):
     return "&".join(retained)
 
 
+def build_public_subscription_url(request, encoded_sub_id):
+    """Absolute /json/ URL used inside client deep links.
+
+    AUTOSUB_PUBLIC_URL wins (reliable behind reverse proxies); otherwise the
+    request base URL is used as a best-effort fallback.
+    """
+    json_path = f"/json/{encoded_sub_id}"
+    public_base = str(env_get("AUTOSUB_PUBLIC_URL", "")).strip().rstrip("/")
+    if public_base:
+        return public_base + json_path
+    return str(request.base_url).rstrip("/") + json_path
+
+
 def render_subscription_page(request, sub_id, *, error=False, status_code=200):
     encoded_sub_id = quote(str(sub_id), safe="")
+    subscribe_url = build_public_subscription_url(request, encoded_sub_id)
+    subscribe_url_b64 = base64.b64encode(subscribe_url.encode("utf-8")).decode("ascii")
     context = {
         "app_version": VERSION,
         "error": error,
         "html_url": f"/sub/{encoded_sub_id}?format=html",
         "json_url": f"/json/{encoded_sub_id}",
+        "subscribe_url": subscribe_url,
+        "subscribe_url_b64": subscribe_url_b64,
+        "platform_panels": build_landing_view(subscribe_url_b64),
         "request_id": get_request_id() if error else "",
     }
     return templates.TemplateResponse(

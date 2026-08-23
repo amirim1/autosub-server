@@ -62,8 +62,13 @@ the raw query is forwarded upstream as-is; on `/sub/` both `format` and
 Legacy-compatible route with two representations:
 
 - `?format=json` returns the same generated JSON as the historical machine path.
-- `?format=html` returns a local AutoSub landing page. The page validates subscription
-  readiness through the existing cache but never embeds or returns upstream HTML.
+- `?format=html` returns a local AutoSub landing page: platform tabs with client
+  download links (Happ, v2RayTun; extensible via `AUTOSUB_LANDING_OVERRIDES`) and
+  one-tap deep links (`happ://add/…`, `v2raytun://import/…`, `incy://import/…`)
+  carrying the Base64-encoded public subscription URL (`AUTOSUB_PUBLIC_URL` or the
+  request base URL). The page validates subscription readiness through the existing
+  cache but never embeds or returns upstream HTML. All external links originate from
+  the server-side catalog; the page contains no scripts and no upstream-derived URLs.
 
 Explicit `format` has priority over all detection. Without it, a Mozilla browser or
 WebView that is not a known subscription client receives local HTML even when its

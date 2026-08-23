@@ -279,7 +279,7 @@ rollback кода не откатывает SQLite после того, как �
 | `GET /json/{sub_id}?client=happ\|incy\|v2raytun` | переопределение профиля клиента (неизвестное значение → 400) |
 | `GET /sub/{sub_id}` | browser landing или JSON по типу клиента |
 | `GET /sub/{sub_id}?format=json` | явный JSON |
-| `GET /sub/{sub_id}?format=html` | явный локальный HTML |
+| `GET /sub/{sub_id}?format=html` | лендинг: платформы, ссылки на клиенты, deep-link «Добавить ключи» |
 | `GET /health` | совместимая liveness-проверка |
 | `GET /health/live` | явная liveness-проверка |
 | `GET /health/ready` | готовность зависимостей процесса |

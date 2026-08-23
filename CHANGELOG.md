@@ -5,6 +5,16 @@ All notable changes to AutoSub Server will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Redesigned public landing page (`/sub/` HTML): platform tabs (Android,
+  Android TV, iOS, Windows, macOS — CSS-only, no JavaScript), per-client cards
+  with verified download links (Happ, v2RayTun) and one-tap deep links
+  (`happ://add/…`, `v2raytun://import/…`, `incy://import/…`) that open the
+  client with the subscription pre-filled. Advanced mode keeps the raw JSON
+  link and copyable subscription URL.
+- New `landing_catalog.py`: server-side client/download catalog. All external
+  landing URLs originate here or from `AUTOSUB_LANDING_OVERRIDES` (JSON,
+  http(s)-only) — never from upstream data. `AUTOSUB_PUBLIC_URL` sets the
+  public origin embedded into deep links.
 - Client profile registry (`client_profiles.py`): connecting apps are identified
   via `?client=` override or `User-Agent` detection (priority: query → UA → generic)
   and receive their default wire format. Profiles: Happ, Incy and v2RayTun → Xray

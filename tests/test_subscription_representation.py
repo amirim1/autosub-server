@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -208,10 +209,28 @@ def test_local_html_has_strict_headers_and_no_unsafe_template_sinks(client):
     assert "script-src 'self'" in policy
     assert "style-src 'self'" in policy
     assert "unsafe-inline" not in policy
-    assert "https://" not in response.text
+
+    from landing_catalog import get_client_entries
+
+    allowed_external = {
+        url
+        for entry in get_client_entries()
+        for url in entry.downloads.values()
+    }
+    hrefs = re.findall(r'href="([^"]+)"', response.text)
+    assert hrefs, "landing must render links"
+    for href in hrefs:
+        assert href.startswith(
+            ("/", "https://", "http://", "happ://", "v2raytun://", "incy://")
+        ), f"unexpected link target: {href}"
+    external = {href for href in hrefs if href.startswith(("https://", "http://"))}
+    assert external <= allowed_external, f"unexpected external links: {external - allowed_external}"
+    assert "javascript:" not in response.text
     assert 'href="/sub/_assets/subscription.css"' in response.text
     assert "Подписка AutoSub готова" in response.text
     assert "Автовыбор применён" in response.text
+    assert "Как подключиться" in response.text
+    assert "Добавить ключи" in response.text
     assert "Без внешних скриптов" in response.text
 
     stylesheet = test_client.get("/sub/_assets/subscription.css")

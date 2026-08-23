@@ -20,6 +20,7 @@ http_client_config.py
 http_client_errors.py
 http_clients.py
 http_security.py
+landing_catalog.py
 logger.py
 logging_utils.py
 migrations.py
