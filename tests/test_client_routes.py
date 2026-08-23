@@ -115,28 +115,35 @@ def client(monkeypatch):
         yield test_client, captured
 
 
-def test_json_route_client_happ_gets_singbox(client):
+def test_json_route_client_happ_gets_xray_array(client):
     test_client, captured = client
     response = test_client.get("/json/sub-id", headers={"User-Agent": "Happ/1.14 iOS"})
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/json")
-    assert captured["out_format"] == "singbox"
-    doc = response.json()
-    assert isinstance(doc, dict)
-    assert any(ob.get("type") == "selector" for ob in doc["outbounds"])
+    assert captured.get("out_format") in ("xray", None)
+    payload = response.json()
+    assert isinstance(payload, list)
+    auto_cards = [n for n in payload if isinstance(n, dict) and "balancers" in n.get("routing", {})]
+    assert len(auto_cards) == 1
+    plain_nodes = [
+        n for n in payload
+        if isinstance(n, dict) and "outbounds" in n and "balancers" not in n.get("routing", {})
+    ]
+    assert len(plain_nodes) == 2
 
 
-def test_json_route_client_v2raytun_gets_singbox(client):
+def test_json_route_client_v2raytun_gets_xray_array(client):
     test_client, captured = client
     response = test_client.get("/json/sub-id", headers={"User-Agent": "V2RayTun/3.0 Android"})
     assert response.status_code == 200
-    assert captured["out_format"] == "singbox"
+    assert isinstance(response.json(), list)
+    assert captured.get("out_format") in ("xray", None)
 
 
 def test_query_client_overrides_user_agent(client):
     test_client, captured = client
     response = test_client.get(
-        "/json/sub-id?client=v2raytun",
+        "/json/sub-id?client=v2raytun&format=singbox",
         headers={"User-Agent": "Happ/1.14 iOS"},
     )
     assert response.status_code == 200

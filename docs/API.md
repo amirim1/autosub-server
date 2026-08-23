@@ -37,12 +37,16 @@ format; an explicit `?format=` value overrides it.
 
 | Profile | UA tokens | Default format |
 |---|---|---|
-| `happ` | `happ` | `singbox` |
-| `incy` | `incy` | `singbox` |
-| `v2raytun` | `v2raytun` | `singbox` |
+| `happ` | `happ` | `xray` |
+| `incy` | `incy` | `xray` |
+| `v2raytun` | `v2raytun` | `xray` |
 | `singbox` | `sing-box`, `singbox` | `singbox` |
 | `clash` | `clash`, `mihomo`, `stash` | `clash` |
 | `generic` | anything else (browsers, curl) | `xray` |
+
+The Xray array format renders each autoselect as a separate server card with its
+balancer embedded, plus one card per node; sing-box/Clash documents are single
+configs with groups selectable inside.
 
 Explicit wire formats via `?format=`: `xray`, `singbox`, `clash`,
 `links`/`base64`. The `links` format returns a Base64-encoded list of standard

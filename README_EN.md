@@ -255,10 +255,10 @@ Client profiles (priority: `?client=` → User-Agent → generic):
 
 | Profile | Default format |
 |---|---|
-| Happ | sing-box JSON (selector + urltest) |
-| Incy | sing-box JSON (selector + urltest) |
-| v2RayTun | sing-box JSON (full balancer support) |
-| Clash/Mihomo/Stash | Clash YAML |
+| Happ | Xray JSON array: one card per autoselect (balancer embedded) + one card per node |
+| Incy | Xray JSON array (same) |
+| v2RayTun | Xray JSON array (same) |
+| Clash/Mihomo/Stash | Clash YAML (groups inside the config) |
 | Generic (browsers, curl, others) | Xray JSON (leastPing/leastLoad + observatory) |
 
 The `links` format cannot encode balancer groups — a limitation of the

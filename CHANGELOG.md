@@ -7,8 +7,9 @@ All notable changes to AutoSub Server will be documented in this file.
 ### Added
 - Client profile registry (`client_profiles.py`): connecting apps are identified
   via `?client=` override or `User-Agent` detection (priority: query → UA → generic)
-  and receive their default wire format. Profiles: Happ → singbox, Incy → singbox,
-  v2RayTun → singbox; sing-box/Clash as before; generic → xray (unchanged).
+  and receive their default wire format. Profiles: Happ, Incy and v2RayTun → Xray
+  array (each autoselect and node shown as a separate server card with balancers
+  embedded); sing-box/Clash as before; generic → xray (unchanged).
 - New optional wire format `links`/`base64`: Base64-encoded list of standard
   share-link URIs (vless/vmess/trojan/ss over reality/tls/ws/grpc/tcp/httpupgrade),
   served as `text/plain`. Available only via explicit `?format=`.
