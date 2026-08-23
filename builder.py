@@ -118,10 +118,80 @@ def match_profiles(profiles, selected_node_ids, tag_filter=None):
     return matched
 
 
+def _normalize_outbound_settings(outbound):
+    """Rebuild canonical settings (vnext/servers) from flat 3x-ui fields. Public API."""
+    if not isinstance(outbound, dict):
+        return outbound
+    protocol = str(outbound.get("protocol", "")).lower()
+    settings = outbound.get("settings")
+    if not isinstance(settings, dict):
+        settings = {}
+
+    tag = outbound.get("tag") or "unknown"
+
+    if protocol in ("vless", "vmess"):
+        if "vnext" not in settings:
+            addr = settings.get("address") or settings.get("add") or ""
+            port = settings.get("port") or 443
+            vuid = settings.get("id") or settings.get("uuid") or ""
+            flow = settings.get("flow") or ""
+            encryption = settings.get("encryption") or "none"
+            level = settings.get("level", 8)
+            if addr and vuid:
+                user_obj = {
+                    "id": str(vuid),
+                    "encryption": encryption,
+                    "level": level,
+                    "security": settings.get("security", "auto"),
+                }
+                if flow and protocol == "vless":
+                    user_obj["flow"] = flow
+                if protocol == "vmess":
+                    user_obj["alterId"] = settings.get("alterId", 0)
+
+                outbound["settings"] = {
+                    "vnext": [
+                        {
+                            "address": str(addr),
+                            "port": int(port) if str(port).isdigit() else port,
+                            "users": [user_obj],
+                        }
+                    ]
+                }
+                log(f"WARNING: Invalid {protocol.upper()} outbound detected '{tag}' ({addr}:{port}): missing vnext, auto-fixing applied")
+
+    elif protocol == "trojan":
+        if "servers" not in settings:
+            addr = settings.get("address") or settings.get("add") or ""
+            port = settings.get("port") or 443
+            password = settings.get("password") or settings.get("id") or ""
+            level = settings.get("level", 8)
+            if addr and password:
+                outbound["settings"] = {
+                    "servers": [
+                        {
+                            "address": str(addr),
+                            "port": int(port) if str(port).isdigit() else port,
+                            "password": str(password),
+                            "level": level,
+                        }
+                    ]
+                }
+                log(f"WARNING: Invalid TROJAN outbound detected '{tag}' ({addr}:{port}): missing servers, auto-fixing applied")
+
+    final_settings = outbound.get("settings", {})
+    if protocol in ("vless", "vmess") and "vnext" not in final_settings:
+        log(f"WARNING: Outbound '{tag}' protocol '{protocol}' is missing 'vnext' section!")
+    elif protocol == "trojan" and "servers" not in final_settings:
+        log(f"WARNING: Outbound '{tag}' protocol 'trojan' is missing 'servers' section!")
+
+    return outbound
+
+
 def _sub_headers(resp_headers):
     h = {}
     keys = (
-        "Subscription-Userinfo", "Profile-Title", "Content-Disposition", 
+        "Subscription-Userinfo", "Profile-Title", "Content-Disposition",
         "Profile-Update-Interval", "Profile-Web-Page-Url",
         "Announce", "Routing", "Routing-Enable"
     )
@@ -288,7 +358,7 @@ async def build_for_subscription(sub_id, storage, query="", http_manager=None, o
             if not outbound:
                 continue
             tag = unique_tag(node_name(e, i), used_tags)
-            outbound_copy = copy.deepcopy(outbound)
+            outbound_copy = _normalize_outbound_settings(copy.deepcopy(outbound))
             outbound_copy["tag"] = tag
             nodes.append((tag, outbound_copy))
             tag_by_profile[id(e)] = tag
@@ -328,77 +398,8 @@ async def build_for_subscription(sub_id, storage, query="", http_manager=None, o
         email = mask_email(client.get("email"))
         log(f"sub_id_hash={sub_ref}: generated {len(groups)} autoselect groups ({format_key}) for {email}")
         return payload, generated_type, sub_headers
-    
+
     # Clean internal fields and inject address/port/inbounds/outbounds for v2rayNG/Happ ping
-    def _normalize_outbound_settings(outbound):
-        if not isinstance(outbound, dict):
-            return outbound
-        protocol = str(outbound.get("protocol", "")).lower()
-        settings = outbound.get("settings")
-        if not isinstance(settings, dict):
-            settings = {}
-
-        tag = outbound.get("tag") or "unknown"
-
-        if protocol in ("vless", "vmess"):
-            if "vnext" not in settings:
-                addr = settings.get("address") or settings.get("add") or ""
-                port = settings.get("port") or 443
-                vuid = settings.get("id") or settings.get("uuid") or ""
-                flow = settings.get("flow") or ""
-                encryption = settings.get("encryption") or "none"
-                level = settings.get("level", 8)
-                if addr and vuid:
-                    user_obj = {
-                        "id": str(vuid),
-                        "encryption": encryption,
-                        "level": level,
-                        "security": settings.get("security", "auto"),
-                    }
-                    if flow and protocol == "vless":
-                        user_obj["flow"] = flow
-                    if protocol == "vmess":
-                        user_obj["alterId"] = settings.get("alterId", 0)
-
-                    outbound["settings"] = {
-                        "vnext": [
-                            {
-                                "address": str(addr),
-                                "port": int(port) if str(port).isdigit() else port,
-                                "users": [user_obj],
-                            }
-                        ]
-                    }
-                    log(f"WARNING: Invalid {protocol.upper()} outbound detected '{tag}' ({addr}:{port}): missing vnext, auto-fixing applied")
-
-        elif protocol == "trojan":
-            if "servers" not in settings:
-                addr = settings.get("address") or settings.get("add") or ""
-                port = settings.get("port") or 443
-                password = settings.get("password") or settings.get("id") or ""
-                level = settings.get("level", 8)
-                if addr and password:
-                    outbound["settings"] = {
-                        "servers": [
-                            {
-                                "address": str(addr),
-                                "port": int(port) if str(port).isdigit() else port,
-                                "password": str(password),
-                                "level": level,
-                            }
-                        ]
-                    }
-                    log(f"WARNING: Invalid TROJAN outbound detected '{tag}' ({addr}:{port}): missing servers, auto-fixing applied")
-
-        # Validate final structure
-        final_settings = outbound.get("settings", {})
-        if protocol in ("vless", "vmess") and "vnext" not in final_settings:
-            log(f"WARNING: Outbound '{tag}' protocol '{protocol}' is missing 'vnext' section!")
-        elif protocol == "trojan" and "servers" not in final_settings:
-            log(f"WARNING: Outbound '{tag}' protocol 'trojan' is missing 'servers' section!")
-
-        return outbound
-
     def _clean(p):
         if not isinstance(p, dict):
             return p
