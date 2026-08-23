@@ -273,8 +273,8 @@ def test_singbox_document_structure_and_sticky_routing():
     remote_dns = next(s for s in doc["dns"]["servers"] if s["tag"] == "remote")
     assert remote_dns["detour"] == "n1"
 
-    sticky = next(r for r in doc["route"]["rules"] if "domain_suffix" in r and "netflix.com" in r["domain_suffix"])
-    assert sticky["outbound"] == "n1"
+    sticky = next(r for r in doc["route"]["rules"] if r.get("outbound") == "n1")
+    assert sticky["domain_suffix"] == ["netflix.com"]
     assert doc["route"]["final"] == "Auto"
 
 
@@ -360,9 +360,8 @@ def test_clash_document_rules_and_groups():
     assert auto_urltest["lazy"] is True
 
     rules = raw["rules"]
-    sticky_rules = [r for r in rules if "netflix.com" in r]
-    assert sticky_rules[0].endswith(",n1")
-    assert any(r == "DOMAIN-SUFFIX,example.ru,DIRECT" for r in rules)
+    assert "DOMAIN-SUFFIX,netflix.com,n1" in rules
+    assert "DOMAIN-SUFFIX,example.ru,DIRECT" in rules
     assert rules[-1] == "MATCH,Auto"
 
 
