@@ -5,6 +5,15 @@ All notable changes to AutoSub Server will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Client profile registry (`client_profiles.py`): connecting apps are identified
+  via `?client=` override or `User-Agent` detection (priority: query → UA → generic)
+  and receive their default wire format. Profiles: Happ → singbox, Incy → singbox,
+  v2RayTun → singbox; sing-box/Clash as before; generic → xray (unchanged).
+- New optional wire format `links`/`base64`: Base64-encoded list of standard
+  share-link URIs (vless/vmess/trojan/ss over reality/tls/ws/grpc/tcp/httpupgrade),
+  served as `text/plain`. Available only via explicit `?format=`.
+- Unknown or repeated `?client=` values return HTTP 400; the parameter is stripped
+  from upstream queries on `/sub/`.
 - Session-sticky balancer generation: `sticky_domains` (meta) route geo-sensitive
   services through a fixed first node, and per-autoselect `country_scope` (schema v5)
   restricts auto-balancing to a single detected country group.

@@ -241,15 +241,28 @@ stored under `/opt/autosub-server/shared/backups/`.
 
 | Method and path | Purpose |
 |---|---|
-| `GET /json/{sub_id}` | Xray JSON subscription, always |
-| `GET /json/{sub_id}?format=singbox` | sing-box client config |
-| `GET /json/{sub_id}?format=clash` | Clash.Meta subscription YAML |
+| `GET /json/{sub_id}` | JSON subscription; format selected by client profile |
+| `GET /json/{sub_id}?format=xray\|singbox\|clash\|links` | explicit wire format (`links`/`base64` = Base64 share-link list) |
+| `GET /json/{sub_id}?client=happ\|incy\|v2raytun` | client profile override (unknown → 400) |
 | `GET /sub/{sub_id}` | browser landing or JSON by caller type |
 | `GET /sub/{sub_id}?format=json` | explicit JSON |
 | `GET /sub/{sub_id}?format=html` | explicit local HTML |
 | `GET /health` | compatible liveness endpoint |
 | `GET /health/live` | explicit liveness endpoint |
 | `GET /health/ready` | in-process dependency readiness |
+
+Client profiles (priority: `?client=` → User-Agent → generic):
+
+| Profile | Default format |
+|---|---|
+| Happ | sing-box JSON (selector + urltest) |
+| Incy | sing-box JSON (selector + urltest) |
+| v2RayTun | sing-box JSON (full balancer support) |
+| Clash/Mihomo/Stash | Clash YAML |
+| Generic (browsers, curl, others) | Xray JSON (leastPing/leastLoad + observatory) |
+
+The `links` format cannot encode balancer groups — a limitation of the
+share-link format itself; use it only explicitly via `?format=`.
 
 Responses include `X-Request-ID`; rate limits return `429` and `Retry-After`.
 See [`docs/API.md`](docs/API.md) for the detailed contract.

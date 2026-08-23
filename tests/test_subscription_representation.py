@@ -165,7 +165,7 @@ def test_explicit_formats_strip_control_parameter_and_share_cache(client):
         'attachment; filename="subscription.json"'
     )
     build.assert_awaited_once()
-    assert build.await_args.kwargs["query"] == "client=happ"
+    assert build.await_args.kwargs["query"] == ""
 
 
 def test_json_route_never_becomes_html_and_preserves_query(client):

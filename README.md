@@ -274,15 +274,28 @@ rollback кода не откатывает SQLite после того, как �
 
 | Метод и путь | Назначение |
 |---|---|
-| `GET /json/{sub_id}` | всегда JSON-подписка (Xray) |
-| `GET /json/{sub_id}?format=singbox` | конфиг для sing-box |
-| `GET /json/{sub_id}?format=clash` | подписка Clash.Meta (YAML) |
+| `GET /json/{sub_id}` | JSON-подписка; формат выбирается по профилю клиента |
+| `GET /json/{sub_id}?format=xray\|singbox\|clash\|links` | явный wire-формат (`links`/`base64` — base64-список share-ссылок) |
+| `GET /json/{sub_id}?client=happ\|incy\|v2raytun` | переопределение профиля клиента (неизвестное значение → 400) |
 | `GET /sub/{sub_id}` | browser landing или JSON по типу клиента |
 | `GET /sub/{sub_id}?format=json` | явный JSON |
 | `GET /sub/{sub_id}?format=html` | явный локальный HTML |
 | `GET /health` | совместимая liveness-проверка |
 | `GET /health/live` | явная liveness-проверка |
 | `GET /health/ready` | готовность зависимостей процесса |
+
+Профили клиентов (приоритет: `?client=` → User-Agent → generic):
+
+| Профиль | Формат по умолчанию |
+|---|---|
+| Happ | sing-box JSON (selector + urltest) |
+| Incy | sing-box JSON (selector + urltest) |
+| v2RayTun | sing-box JSON (полная поддержка балансировщика) |
+| Clash/Mihomo/Stash | Clash YAML |
+| Generic (браузеры, curl, прочее) | Xray JSON (leastPing/leastLoad + observatory) |
+
+Формат `links` не кодирует балансировочные группы — это ограничение формата
+share-ссылок; используйте его только явно через `?format=`.
 
 Ответы содержат `X-Request-ID`; rate limit возвращает `429` и `Retry-After`.
 Подробный контракт: [`docs/API.md`](docs/API.md).
