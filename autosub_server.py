@@ -33,6 +33,7 @@ from subscription_representation import (
     SubscriptionRepresentation,
     UnsupportedSubscriptionFormat,
     render_subscription_page,
+    resolve_wire_format,
     select_subscription_representation,
     strip_format_query,
     subscription_css_path,
@@ -305,21 +306,22 @@ async def subscription_stylesheet():
     )
 
 
-async def _get_cached_subscription(request, sub_id, query):
+async def _get_cached_subscription(request, sub_id, query, wire_format="xray"):
     subscription_cache = request.app.state.subscription_cache
     cache_key = await subscription_cache.make_key(
         sub_id,
         query,
-        variant=_subscription_cache_variant(),
+        variant=f"{_subscription_cache_variant()}:{wire_format}",
     )
 
     async def build_subscription():
-        return await build_for_subscription(
-            sub_id,
-            storage,
-            query=query,
-            http_manager=request.app.state.http_clients,
-        )
+        kwargs = {
+            "query": query,
+            "http_manager": request.app.state.http_clients,
+        }
+        if wire_format != "xray":
+            kwargs["out_format"] = wire_format
+        return await build_for_subscription(sub_id, storage, **kwargs)
 
     return await subscription_cache.get_or_build(cache_key, build_subscription)
 
@@ -340,6 +342,12 @@ async def handle_json_route(sub_id: str, request: Request):
     except UnsupportedSubscriptionFormat:
         return json_error("Unsupported subscription format", 400)
 
+    wire_format = resolve_wire_format(
+        is_json_route=is_json_route,
+        format_values=request.query_params.getlist("format"),
+        user_agent=request.headers.get("user-agent", ""),
+    )
+
     query = request.url.query
     if not is_json_route:
         query = strip_format_query(query)
@@ -357,7 +365,7 @@ async def handle_json_route(sub_id: str, request: Request):
 
     try:
         output, ctype, sub_headers = await _get_cached_subscription(
-            request, sub_id, query
+            request, sub_id, query, wire_format
         )
         
         SKIP_HEADERS = {
@@ -382,7 +390,10 @@ async def handle_json_route(sub_id: str, request: Request):
                     header_val = f"base64:{base64.b64encode(header_val.encode('utf-8')).decode('ascii')}"
             headers[key] = header_val
             
-        media_type = ctype if "json" in ctype else "application/json; charset=utf-8"
+        if "json" in ctype or "yaml" in ctype:
+            media_type = ctype
+        else:
+            media_type = "application/json; charset=utf-8"
         sec_flags = await resolve_security_flags(
             sub_id, storage, http_manager=request.app.state.http_clients
         )

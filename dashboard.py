@@ -13,7 +13,7 @@ from builder import (
 )
 from fingerprint import node_name, profile_node_id, node_summary
 from fastapi.templating import Jinja2Templates
-from config import normalize_direct_domains, VERSION
+from config import SUPPORTED_AUTOSELECT_STRATEGIES, normalize_direct_domains, VERSION
 from logger import logger
 
 templates_dir = Path(__file__).resolve().parent / "templates"
@@ -196,10 +196,17 @@ async def render_admin(request, storage, message="", csrf_token="", client_manag
 
     probe_url, probe_interval = await storage.get_probe_config()
     direct_domains = await storage.get_direct_domains()
+    try:
+        sticky_domains = await storage.get_sticky_domains()
+    except Exception:
+        sticky_domains = []
+    if not isinstance(sticky_domains, list):
+        sticky_domains = []
 
     for auto in autoselects:
         auto["tag_filter_names"] = set(t.lower() for t in (auto.get("tag_filter") or []))
         auto["tag_filter_count"] = len(auto["tag_filter_names"])
+        auto["country_scope"] = bool(auto.get("country_scope"))
         
     for n in catalog:
         n["tag_or_name"] = n.get("tag") or n.get("name") or ""
@@ -219,6 +226,7 @@ async def render_admin(request, storage, message="", csrf_token="", client_manag
         "probe_url": probe_url,
         "probe_interval": probe_interval,
         "direct_domains_text": "\n".join(direct_domains),
+        "sticky_domains_text": "\n".join(sticky_domains),
         "rules_text": rules_text,
         "overrides_text": overrides_text,
         "sec_hide_text": sec_hide_text,
@@ -386,6 +394,10 @@ async def save_admin_form(storage, data):
     if direct_domains is not None:
         await storage.set_direct_domains(direct_domains)
 
+    if "sticky_domains" in data:
+        sticky_domains = parse_direct_domains_text(data.get("sticky_domains", ""))
+        await storage.set_sticky_domains(sticky_domains)
+
     autoselects = await storage.get_autoselects()
     for auto in autoselects:
         aid = auto.get("id")
@@ -396,16 +408,18 @@ async def save_admin_form(storage, data):
         strategy = data.get(f"strategy_{aid}", auto.get("strategy", "leastPing"))
         if isinstance(strategy, list):
             strategy = strategy[0]
-        if strategy not in ("leastPing", "leastLoad"):
+        if strategy not in SUPPORTED_AUTOSELECT_STRATEGIES:
             strategy = "leastPing"
-        
+
+        country_scope = f"country_scope_{aid}" in data
+
         mode = data.get(f"mode_{aid}", "")
         if isinstance(mode, str) and mode == "*":
-            await storage.update_autoselect(aid, selected_node_ids=["*"], tag_filter=[], name=name, strategy=strategy)
+            await storage.update_autoselect(aid, selected_node_ids=["*"], tag_filter=[], name=name, strategy=strategy, country_scope=country_scope)
         else:
             tag_key = f"tag_{aid}"
             tag_raw = data.get(tag_key, [])
             if isinstance(tag_raw, str):
                 tag_raw = [tag_raw]
             tag_filter = [t.strip() for t in tag_raw if t.strip()]
-            await storage.update_autoselect(aid, selected_node_ids=["*"], tag_filter=tag_filter, name=name, strategy=strategy)
+            await storage.update_autoselect(aid, selected_node_ids=["*"], tag_filter=tag_filter, name=name, strategy=strategy, country_scope=country_scope)

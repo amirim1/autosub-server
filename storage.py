@@ -9,12 +9,15 @@ from pathlib import Path
 import aiosqlite
 
 from logger import logger
-from config import DEFAULT_DIRECT_DOMAINS, normalize_direct_domains, validate_legacy_config
+from config import (
+    DEFAULT_DIRECT_DOMAINS,
+    DEFAULT_STICKY_DOMAINS,
+    SUPPORTED_AUTOSELECT_STRATEGIES,
+    normalize_direct_domains,
+    validate_legacy_config,
+)
 from database_errors import DatabaseIntegrityError
 from migrations import MIGRATIONS, SCHEMA_VERSION, prepare_database
-
-
-SUPPORTED_AUTOSELECT_STRATEGIES = {"leastPing", "leastLoad"}
 
 
 def normalize_autoselect_strategy(strategy):
@@ -122,15 +125,17 @@ class Storage:
                     return False
                 for auto in cfg.get("autoselects", []):
                     await self.conn.execute(
-                        "INSERT INTO autoselects (id, name, strategy, selected_node_ids, tag_filter, enabled) VALUES (?, ?, ?, ?, ?, ?) "
+                        "INSERT INTO autoselects (id, name, strategy, selected_node_ids, tag_filter, country_scope, enabled) VALUES (?, ?, ?, ?, ?, ?, ?) "
                         "ON CONFLICT(id) DO UPDATE SET name=excluded.name, strategy=excluded.strategy, "
-                        "selected_node_ids=excluded.selected_node_ids, tag_filter=excluded.tag_filter, enabled=excluded.enabled",
+                        "selected_node_ids=excluded.selected_node_ids, tag_filter=excluded.tag_filter, "
+                        "country_scope=excluded.country_scope, enabled=excluded.enabled",
                         (
                             auto.get("id", ""),
                             auto.get("name", ""),
                             normalize_autoselect_strategy(auto.get("strategy", "leastPing")),
                             json.dumps(auto.get("selected_node_ids", []), ensure_ascii=False),
                             json.dumps(auto.get("tag_filter", []), ensure_ascii=False),
+                            1 if auto.get("country_scope", False) else 0,
                             1 if auto.get("enabled", True) else 0,
                         ),
                     )
@@ -319,7 +324,7 @@ class Storage:
     # --- Autoselects ---
 
     async def get_autoselects(self):
-        async with self.conn.execute("SELECT id, name, strategy, selected_node_ids, tag_filter, enabled FROM autoselects ORDER BY rowid") as cursor:
+        async with self.conn.execute("SELECT id, name, strategy, selected_node_ids, tag_filter, country_scope, enabled FROM autoselects ORDER BY rowid") as cursor:
             rows = await cursor.fetchall()
         result = []
         for row in rows:
@@ -339,24 +344,26 @@ class Storage:
                 "strategy": row["strategy"],
                 "selected_node_ids": selected,
                 "tag_filter": tag_filter,
+                "country_scope": bool(row["country_scope"]),
                 "enabled": bool(row["enabled"]),
             })
         return result
 
-    async def add_autoselect(self, autoselect_id, name, strategy="leastPing", selected_node_ids=None, tag_filter=None, enabled=1):
+    async def add_autoselect(self, autoselect_id, name, strategy="leastPing", selected_node_ids=None, tag_filter=None, country_scope=False, enabled=1):
         if selected_node_ids is None:
             selected_node_ids = ["*"]
         if tag_filter is None:
             tag_filter = []
         async with self._lock:
             await self.conn.execute(
-                "INSERT INTO autoselects (id, name, strategy, selected_node_ids, tag_filter, enabled) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO autoselects (id, name, strategy, selected_node_ids, tag_filter, country_scope, enabled) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     autoselect_id,
                     name,
                     normalize_autoselect_strategy(strategy),
                     json.dumps(selected_node_ids, ensure_ascii=False),
                     json.dumps(tag_filter, ensure_ascii=False),
+                    1 if country_scope else 0,
                     1 if enabled else 0,
                 ),
             )
@@ -368,7 +375,7 @@ class Storage:
             await self.conn.execute("DELETE FROM group_rules WHERE autoselect_id = ?", (autoselect_id,))
             await self.conn.commit()
 
-    async def update_autoselect(self, autoselect_id, selected_node_ids=None, tag_filter=None, name=None, enabled=None, strategy=None):
+    async def update_autoselect(self, autoselect_id, selected_node_ids=None, tag_filter=None, name=None, enabled=None, strategy=None, country_scope=None):
         async with self._lock:
             updates = []
             params = []
@@ -387,6 +394,9 @@ class Storage:
             if strategy is not None:
                 updates.append("strategy = ?")
                 params.append(normalize_autoselect_strategy(strategy))
+            if country_scope is not None:
+                updates.append("country_scope = ?")
+                params.append(1 if country_scope else 0)
             if updates:
                 params.append(autoselect_id)
                 # Column fragments come only from the fixed branches above.
@@ -424,6 +434,22 @@ class Storage:
     async def set_direct_domains(self, domains):
         normalized = normalize_direct_domains(domains)
         await self.set_meta("direct_domains", json.dumps(normalized, ensure_ascii=False))
+
+    # --- Sticky routing domains ---
+
+    async def get_sticky_domains(self):
+        raw = await self.get_meta("sticky_domains")
+        if raw is None:
+            return list(DEFAULT_STICKY_DOMAINS)
+        try:
+            return normalize_direct_domains(json.loads(raw))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            logger.warning("Stored sticky domain configuration is invalid; using defaults")
+            return list(DEFAULT_STICKY_DOMAINS)
+
+    async def set_sticky_domains(self, domains):
+        normalized = normalize_direct_domains(domains)
+        await self.set_meta("sticky_domains", json.dumps(normalized, ensure_ascii=False))
 
     # --- Group Rules ---
 

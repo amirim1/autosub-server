@@ -30,6 +30,39 @@ class SubscriptionRepresentation(Enum):
     HTML = "html"
 
 
+_WIRE_FORMAT_ALIASES = {
+    "xray": "xray",
+    "json": "xray",
+    "singbox": "singbox",
+    "sing-box": "singbox",
+    "sb": "singbox",
+    "clash": "clash",
+    "clash-meta": "clash",
+    "clash.meta": "clash",
+    "mihomo": "clash",
+}
+
+_JSON_FORMAT_VALUES = frozenset({"json"}) | set(_WIRE_FORMAT_ALIASES)
+
+_SINGBOX_AGENTS = ("sing-box", "singbox")
+_CLASH_AGENTS = ("clash", "mihomo", "stash")
+
+
+def resolve_wire_format(*, is_json_route, format_values=(), user_agent=""):
+    """Resolve the requested wire format: xray | singbox | clash."""
+    for value in format_values or ():
+        key = str(value).strip().lower()
+        resolved = _WIRE_FORMAT_ALIASES.get(key)
+        if resolved is not None:
+            return resolved
+    normalized_agent = str(user_agent or "").lower()
+    if any(agent in normalized_agent for agent in _SINGBOX_AGENTS):
+        return "singbox"
+    if any(agent in normalized_agent for agent in _CLASH_AGENTS):
+        return "clash"
+    return "xray"
+
+
 class UnsupportedSubscriptionFormat(ValueError):
     pass
 
@@ -85,8 +118,11 @@ def select_subscription_representation(
     if explicit:
         if len(explicit) != 1:
             raise UnsupportedSubscriptionFormat("format must be specified once")
+        normalized = str(explicit[0]).strip().lower()
+        if normalized in _JSON_FORMAT_VALUES:
+            return SubscriptionRepresentation.JSON
         try:
-            return SubscriptionRepresentation(str(explicit[0]).strip().lower())
+            return SubscriptionRepresentation(normalized)
         except ValueError as exc:
             raise UnsupportedSubscriptionFormat(
                 "supported subscription formats are json and html"

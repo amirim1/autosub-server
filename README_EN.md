@@ -241,7 +241,9 @@ stored under `/opt/autosub-server/shared/backups/`.
 
 | Method and path | Purpose |
 |---|---|
-| `GET /json/{sub_id}` | JSON subscription, always |
+| `GET /json/{sub_id}` | Xray JSON subscription, always |
+| `GET /json/{sub_id}?format=singbox` | sing-box client config |
+| `GET /json/{sub_id}?format=clash` | Clash.Meta subscription YAML |
 | `GET /sub/{sub_id}` | browser landing or JSON by caller type |
 | `GET /sub/{sub_id}?format=json` | explicit JSON |
 | `GET /sub/{sub_id}?format=html` | explicit local HTML |
@@ -251,6 +253,17 @@ stored under `/opt/autosub-server/shared/backups/`.
 
 Responses include `X-Request-ID`; rate limits return `429` and `Retry-After`.
 See [`docs/API.md`](docs/API.md) for the detailed contract.
+
+### Balancing and geo-sensitive routing
+
+Generated balancer groups avoid session splitting and multi-country IP hopping:
+
+- `sticky_domains` (admin panel) are routed through one fixed node, keeping banks,
+  streaming platforms and IP-bound APIs on a stable egress; DNS follows the same path.
+- Per-autoselect **country scope** restricts balancing to nodes of a single detected
+  country (flag emoji or name tokens), so reconnects never change egress country.
+- Health-check intervals are clamped to a 60s floor (`AUTOSUB_MIN_PROBE_INTERVAL`)
+  to prevent mid-session node flapping.
 
 ## Security notes
 
