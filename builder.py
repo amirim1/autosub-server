@@ -358,7 +358,9 @@ async def build_for_subscription(sub_id, storage, query="", http_manager=None, o
             if not outbound:
                 continue
             tag = unique_tag(node_name(e, i), used_tags)
-            outbound_copy = _normalize_outbound_settings(copy.deepcopy(outbound))
+            outbound_copy = copy.deepcopy(outbound)
+            outbound_copy["tag"] = tag
+            outbound_copy = _normalize_outbound_settings(outbound_copy)
             outbound_copy["tag"] = tag
             nodes.append((tag, outbound_copy))
             tag_by_profile[id(e)] = tag
