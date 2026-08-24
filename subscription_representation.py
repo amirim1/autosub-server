@@ -1,3 +1,6 @@
+"""Subscription representation selection and local landing page rendering."""
+
+import base64
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -5,7 +8,9 @@ from urllib.parse import quote, unquote_plus
 
 from fastapi.templating import Jinja2Templates
 
-from config import VERSION
+from client_profiles import detect_client_profile
+from config import VERSION, env_get
+from landing_catalog import build_landing_view
 from logging_utils import get_request_id
 
 
@@ -28,6 +33,33 @@ KNOWN_SUBSCRIPTION_CLIENTS = (
 class SubscriptionRepresentation(Enum):
     JSON = "json"
     HTML = "html"
+
+
+_WIRE_FORMAT_ALIASES = {
+    "xray": "xray",
+    "json": "xray",
+    "singbox": "singbox",
+    "sing-box": "singbox",
+    "sb": "singbox",
+    "clash": "clash",
+    "clash-meta": "clash",
+    "clash.meta": "clash",
+    "mihomo": "clash",
+    "links": "links",
+    "base64": "links",
+}
+
+_JSON_FORMAT_VALUES = frozenset({"json"}) | set(_WIRE_FORMAT_ALIASES)
+
+
+def resolve_wire_format(*, is_json_route, format_values=(), user_agent=""):
+    """Resolve the requested wire format: xray | singbox | clash | links."""
+    for value in format_values or ():
+        key = str(value).strip().lower()
+        resolved = _WIRE_FORMAT_ALIASES.get(key)
+        if resolved is not None:
+            return resolved
+    return detect_client_profile(user_agent=user_agent).wire_format
 
 
 class UnsupportedSubscriptionFormat(ValueError):
@@ -85,8 +117,11 @@ def select_subscription_representation(
     if explicit:
         if len(explicit) != 1:
             raise UnsupportedSubscriptionFormat("format must be specified once")
+        normalized = str(explicit[0]).strip().lower()
+        if normalized in _JSON_FORMAT_VALUES:
+            return SubscriptionRepresentation.JSON
         try:
-            return SubscriptionRepresentation(str(explicit[0]).strip().lower())
+            return SubscriptionRepresentation(normalized)
         except ValueError as exc:
             raise UnsupportedSubscriptionFormat(
                 "supported subscription formats are json and html"
@@ -117,22 +152,41 @@ def select_subscription_representation(
 
 
 def strip_format_query(raw_query):
+    stripped_names = {"format", "client"}
     retained = []
     for component in str(raw_query or "").split("&"):
         encoded_name = component.partition("=")[0]
-        if unquote_plus(encoded_name) == "format":
+        if unquote_plus(encoded_name) in stripped_names:
             continue
         retained.append(component)
     return "&".join(retained)
 
 
+def build_public_subscription_url(request, encoded_sub_id):
+    """Absolute /json/ URL used inside client deep links.
+
+    AUTOSUB_PUBLIC_URL wins (reliable behind reverse proxies); otherwise the
+    request base URL is used as a best-effort fallback.
+    """
+    json_path = f"/json/{encoded_sub_id}"
+    public_base = str(env_get("AUTOSUB_PUBLIC_URL", "")).strip().rstrip("/")
+    if public_base:
+        return public_base + json_path
+    return str(request.base_url).rstrip("/") + json_path
+
+
 def render_subscription_page(request, sub_id, *, error=False, status_code=200):
     encoded_sub_id = quote(str(sub_id), safe="")
+    subscribe_url = build_public_subscription_url(request, encoded_sub_id)
+    subscribe_url_b64 = base64.b64encode(subscribe_url.encode("utf-8")).decode("ascii")
     context = {
         "app_version": VERSION,
         "error": error,
         "html_url": f"/sub/{encoded_sub_id}?format=html",
         "json_url": f"/json/{encoded_sub_id}",
+        "subscribe_url": subscribe_url,
+        "subscribe_url_b64": subscribe_url_b64,
+        "platform_panels": build_landing_view(subscribe_url_b64, subscribe_url),
         "request_id": get_request_id() if error else "",
     }
     return templates.TemplateResponse(

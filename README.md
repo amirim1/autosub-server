@@ -124,7 +124,7 @@ curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/dev/install.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/install.sh \
-  | AUTOSUB_VERSION=v3.1.0 bash
+  | AUTOSUB_VERSION=v3.2.0 bash
 ```
 
 ### Первичная настройка
@@ -245,7 +245,7 @@ AUTOSUB_VERSION=dev /opt/autosub-server/update.sh
 ### Закреплённая версия
 
 ```bash
-AUTOSUB_VERSION=v3.1.0 /opt/autosub-server/update.sh
+AUTOSUB_VERSION=v3.2.0 /opt/autosub-server/update.sh
 ```
 
 Обновлятор использует lock, проверяет свободное место и Python, создаёт backup
@@ -274,16 +274,42 @@ rollback кода не откатывает SQLite после того, как �
 
 | Метод и путь | Назначение |
 |---|---|
-| `GET /json/{sub_id}` | всегда JSON-подписка |
+| `GET /json/{sub_id}` | JSON-подписка; формат выбирается по профилю клиента |
+| `GET /json/{sub_id}?format=xray\|singbox\|clash\|links` | явный wire-формат (`links`/`base64` — base64-список share-ссылок) |
+| `GET /json/{sub_id}?client=happ\|incy\|v2raytun` | переопределение профиля клиента (неизвестное значение → 400) |
 | `GET /sub/{sub_id}` | browser landing или JSON по типу клиента |
 | `GET /sub/{sub_id}?format=json` | явный JSON |
-| `GET /sub/{sub_id}?format=html` | явный локальный HTML |
+| `GET /sub/{sub_id}?format=html` | лендинг: платформы, ссылки на клиенты, deep-link «Добавить ключи» |
 | `GET /health` | совместимая liveness-проверка |
 | `GET /health/live` | явная liveness-проверка |
 | `GET /health/ready` | готовность зависимостей процесса |
 
+Профили клиентов (приоритет: `?client=` → User-Agent → generic):
+
+| Профиль | Формат по умолчанию |
+|---|---|
+| Happ | Xray JSON-массив: карточка на каждый автоселект (балансировщик внутри) + карточка каждой ноды |
+| Incy | Xray JSON-массив (аналогично) |
+| v2RayTun | Xray JSON-массив (аналогично) |
+| Clash/Mihomo/Stash | Clash YAML (группы внутри конфига) |
+| Generic (браузеры, curl, прочее) | Xray JSON (leastPing/leastLoad + observatory) |
+
+Формат `links` не кодирует балансировочные группы — это ограничение формата
+share-ссылок; используйте его только явно через `?format=`.
+
 Ответы содержат `X-Request-ID`; rate limit возвращает `429` и `Retry-After`.
 Подробный контракт: [`docs/API.md`](docs/API.md).
+
+### Балансировка и гео-чувствительные сервисы
+
+Сгенерированные балансировщики исключают «разрыв сессий» и скачки IP между странами:
+
+- `sticky_domains` (админ-панель) маршрутизируются через фиксированную ноду — банки,
+  стриминг и API с привязкой к IP получают стабильный egress; DNS идёт тем же путём.
+- Режим **«Только одна страна»** у балансировщика ограничивает авто-выбор нодами
+  одной страны (flag-эмодзи или название), поэтому переподключения не меняют страну.
+- Интервал health-check принудительно не ниже 60s (`AUTOSUB_MIN_PROBE_INTERVAL`),
+  чтобы узлы не переключались посреди сессии.
 
 ## Конфигурация
 
@@ -301,6 +327,7 @@ rollback кода не откатывает SQLite после того, как �
 | `XUI_USERNAME/PASSWORD` | fallback login API |
 | `XUI_TLS_VERIFY` | проверка TLS upstream |
 | `SUB_TITLE`, `SUB_USERINFO` | необязательные overrides метаданных |
+| `AUTOSUB_MIN_PROBE_INTERVAL` | пол интервала health-check в генерации (60s) |
 
 Постоянные правила хранятся в SQLite. `shared/config.json` нужен для совместимости и
 первичного импорта; миграция помечается только после успешной транзакции.

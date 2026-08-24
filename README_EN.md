@@ -110,7 +110,7 @@ curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/dev/install.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/install.sh \
-  | AUTOSUB_VERSION=v3.1.0 bash
+  | AUTOSUB_VERSION=v3.2.0 bash
 ```
 
 The installer resolves `latest` through GitHub Releases, fetches the exact ref,
@@ -212,7 +212,7 @@ AUTOSUB_VERSION=dev /opt/autosub-server/update.sh
 ### Pinned release
 
 ```bash
-AUTOSUB_VERSION=v3.1.0 /opt/autosub-server/update.sh
+AUTOSUB_VERSION=v3.2.0 /opt/autosub-server/update.sh
 ```
 
 The updater takes a lock, checks disk/Python requirements, backs up SQLite,
@@ -241,16 +241,42 @@ stored under `/opt/autosub-server/shared/backups/`.
 
 | Method and path | Purpose |
 |---|---|
-| `GET /json/{sub_id}` | JSON subscription, always |
+| `GET /json/{sub_id}` | JSON subscription; format selected by client profile |
+| `GET /json/{sub_id}?format=xray\|singbox\|clash\|links` | explicit wire format (`links`/`base64` = Base64 share-link list) |
+| `GET /json/{sub_id}?client=happ\|incy\|v2raytun` | client profile override (unknown → 400) |
 | `GET /sub/{sub_id}` | browser landing or JSON by caller type |
 | `GET /sub/{sub_id}?format=json` | explicit JSON |
-| `GET /sub/{sub_id}?format=html` | explicit local HTML |
+| `GET /sub/{sub_id}?format=html` | landing: platform tabs, client download links, deep-link "Add keys" |
 | `GET /health` | compatible liveness endpoint |
 | `GET /health/live` | explicit liveness endpoint |
 | `GET /health/ready` | in-process dependency readiness |
 
+Client profiles (priority: `?client=` → User-Agent → generic):
+
+| Profile | Default format |
+|---|---|
+| Happ | Xray JSON array: one card per autoselect (balancer embedded) + one card per node |
+| Incy | Xray JSON array (same) |
+| v2RayTun | Xray JSON array (same) |
+| Clash/Mihomo/Stash | Clash YAML (groups inside the config) |
+| Generic (browsers, curl, others) | Xray JSON (leastPing/leastLoad + observatory) |
+
+The `links` format cannot encode balancer groups — a limitation of the
+share-link format itself; use it only explicitly via `?format=`.
+
 Responses include `X-Request-ID`; rate limits return `429` and `Retry-After`.
 See [`docs/API.md`](docs/API.md) for the detailed contract.
+
+### Balancing and geo-sensitive routing
+
+Generated balancer groups avoid session splitting and multi-country IP hopping:
+
+- `sticky_domains` (admin panel) are routed through one fixed node, keeping banks,
+  streaming platforms and IP-bound APIs on a stable egress; DNS follows the same path.
+- Per-autoselect **country scope** restricts balancing to nodes of a single detected
+  country (flag emoji or name tokens), so reconnects never change egress country.
+- Health-check intervals are clamped to a 60s floor (`AUTOSUB_MIN_PROBE_INTERVAL`)
+  to prevent mid-session node flapping.
 
 ## Security notes
 

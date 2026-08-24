@@ -3,7 +3,9 @@ LICENSE
 .env.example
 api_client.py
 autosub_server.py
+balancer.py
 builder.py
+client_profiles.py
 config.example.json
 config.py
 csrf.py
@@ -13,10 +15,12 @@ database_errors.py
 database_schema.py
 fingerprint.py
 finish_setup.sh
+generators.py
 http_client_config.py
 http_client_errors.py
 http_clients.py
 http_security.py
+landing_catalog.py
 logger.py
 logging_utils.py
 migrations.py

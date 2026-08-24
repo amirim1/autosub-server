@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="dark">
     <title>Подписка AutoSub</title>
-    <link rel="stylesheet" href="/sub/_assets/subscription.css">
+    <link rel="stylesheet" href="/sub/_assets/subscription.css?v={{ app_version }}">
 </head>
 <body>
     <div class="ambient ambient-one" aria-hidden="true"></div>
@@ -31,7 +31,7 @@
             <div class="state-icon" aria-hidden="true">✓</div>
             <p class="eyebrow">Готово к подключению</p>
             <h1 id="page-title">Подписка AutoSub готова</h1>
-            <p class="lead">Автовыбор серверов уже добавлен. Откройте JSON-ссылку в совместимом VPN-клиенте или скопируйте адрес текущей подписки в приложение.</p>
+            <p class="lead">Автовыбор серверов уже добавлен. Выберите платформу, установите приложение и добавьте ключи одним нажатием.</p>
 
             <ul class="feature-grid" aria-label="Состояние подписки">
                 <li><span aria-hidden="true">✓</span> Автовыбор применён</li>
@@ -39,9 +39,43 @@
                 <li><span aria-hidden="true">✓</span> Данные 3x-ui защищены</li>
             </ul>
 
-            <div class="actions">
-                <a class="button" href="{{ json_url }}">Открыть JSON <span aria-hidden="true">→</span></a>
+            <h2 class="section-title">Как подключиться</h2>
+            <div class="platform-tabs">
+                {% for panel in platform_panels %}
+                <input class="tab-radio" type="radio" name="platform" id="tab-{{ panel.id }}"{% if loop.first %} checked{% endif %}>
+                <label class="tab-label" for="tab-{{ panel.id }}">{{ panel.label }}</label>
+                {% endfor %}
+                <div class="platform-panels">
+                    {% for panel in platform_panels %}
+                    <section class="platform-panel panel-{{ panel.id }}" aria-label="{{ panel.label }}">
+                        {% for client in panel.clients %}
+                        <article class="client-card">
+                            <div class="client-head">
+                                <span class="client-name">{{ client.name }}</span>
+                                {% if client.badge %}<span class="client-badge">{{ client.badge }}</span>{% endif %}
+                            </div>
+                            <div class="client-actions">
+                                {% set download_url = client.downloads.get(panel.id) %}
+                                {% if download_url %}
+                                <a class="button small secondary" href="{{ download_url }}" target="_blank" rel="noopener noreferrer nofollow">Скачать</a>
+                                {% endif %}
+                                <a class="button small" href="{{ client.deep_link }}">Добавить ключи</a>
+                            </div>
+                        </article>
+                        {% endfor %}
+                    </section>
+                    {% endfor %}
+                </div>
             </div>
+            <p class="step-note">Нажмите «Добавить ключи» — приложение откроется и предложит добавить подписку автоматически. Балансировщики доступны через карточки автоселекта.</p>
+
+            <details class="advanced">
+                <summary>Продвинутый режим</summary>
+                <div class="actions">
+                    <a class="button secondary" href="{{ json_url }}">Открыть JSON <span aria-hidden="true">→</span></a>
+                </div>
+                <p class="advanced-url">URL подписки для ручного добавления: <code>{{ subscribe_url }}</code></p>
+            </details>
             {% endif %}
 
             <footer class="privacy-note">

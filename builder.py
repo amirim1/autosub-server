@@ -3,7 +3,7 @@ import json
 import time
 
 from api_client import fetch_original_subscription, normalize_subscription
-from config import DEFAULT_DIRECT_DOMAINS, env_get, normalize_direct_domains
+from config import DEFAULT_DIRECT_DOMAINS, env_get
 from fingerprint import (
     canonical_node_id,
     extract_proxy_outbound,
@@ -12,6 +12,17 @@ from fingerprint import (
     node_summary,
     profile_node_id,
     unique_tag,
+)
+from generators import (
+    WIRE_FORMATS,
+    _block_outbound,
+    _direct_outbound,
+    build_clash_document,
+    build_links_document,
+    build_singbox_document,
+    build_xray_profile,
+    dumps_clash,
+    encode_links_payload,
 )
 from logger import log
 from logging_utils import fingerprint_secret, mask_email
@@ -37,124 +48,20 @@ def build_autoselect_profile(
     probe_url,
     probe_interval,
     direct_domains=None,
+    sticky_domains=None,
 ):
-    selected_outbounds = []
-    tags = []
-    used = set()
-    for idx, profile in enumerate(selected_profiles):
-        outbound = profile.get("_outbound")
-        if not outbound:
-            continue
-        tag = unique_tag(node_name(profile, idx), used)
-        outbound["tag"] = tag
-        selected_outbounds.append(outbound)
-        tags.append(tag)
-    if not selected_outbounds:
-        return None
-
-    name = autoselect.get("name") or "Авто"
-    result = copy.deepcopy(template_profile)
-    for key in ("remarks", "remark", "ps", "name"):
-        result[key] = name
-
-    result["dns"] = {
-        "servers": [
-            "77.88.8.8",
-            "1.1.1.1",
-            "8.8.8.8",
-        ],
-        "queryStrategy": "UseIP",
-    }
-    result["inbounds"] = [
-        {
-            "tag": "socks",
-            "port": 10808,
-            "listen": "127.0.0.1",
-            "protocol": "socks",
-            "settings": {"auth": "noauth", "udp": True},
-            "sniffing": {
-                "enabled": True,
-                "routeOnly": False,
-                "destOverride": ["http", "tls", "quic"],
-            },
-        },
-        {
-            "tag": "http",
-            "port": 10809,
-            "listen": "127.0.0.1",
-            "protocol": "http",
-            "settings": {"allowTransparent": False},
-            "sniffing": {
-                "enabled": True,
-                "routeOnly": False,
-                "destOverride": ["http", "tls", "quic"],
-            },
-        },
-    ]
-    result["outbounds"] = selected_outbounds + [_direct_outbound(), _block_outbound()]
-    result["burstObservatory"] = {
-        "pingConfig": {
-            "timeout": "2s",
-            "interval": probe_interval,
-            "sampling": 2,
-            "destination": probe_url,
-            "connectivity": "",
-        },
-        "subjectSelector": tags[:],
-    }
-
+    """Backward-compatible wrapper around the Xray generator. Public API."""
     if direct_domains is None:
         direct_domains = DEFAULT_DIRECT_DOMAINS
-    direct_domains = normalize_direct_domains(direct_domains)
-
-    routing_rules = [
-        {"type": "field", "ip": ["geoip:private"], "outboundTag": "direct"},
-        {"type": "field", "protocol": ["bittorrent"], "outboundTag": "block"},
-        {"type": "field", "port": "443", "network": "udp", "outboundTag": "block"},
-    ]
-    if direct_domains:
-        routing_rules.append({"type": "field", "domain": direct_domains, "outboundTag": "direct"})
-    routing_rules.append({"type": "field", "network": "tcp,udp", "balancerTag": name})
-
-    strategy_type = autoselect.get("strategy", "leastPing")
-    if strategy_type not in ("leastPing", "leastLoad"):
-        log(
-            f"WARNING: Unsupported autoselect strategy '{strategy_type}', "
-            "falling back to leastPing"
-        )
-        strategy_type = "leastPing"
-
-    strategy = {"type": strategy_type}
-    if strategy_type == "leastLoad":
-        strategy["settings"] = {
-            "maxRTT": "2500ms",
-            "expected": 1,
-            "baselines": ["250ms", "700ms", "1500ms"],
-            "tolerance": 0.2,
-        }
-
-    result["routing"] = {
-        "domainMatcher": "hybrid",
-        "domainStrategy": "IPIfNonMatch",
-        "rules": routing_rules,
-        "balancers": [
-            {
-                "tag": name,
-                "selector": tags[:],
-                "fallbackTag": tags[0] if tags else "",
-                "strategy": strategy,
-            }
-        ],
-    }
-    return result
-
-
-def _direct_outbound():
-    return {"protocol": "freedom", "settings": {"domainStrategy": "UseIP"}, "tag": "direct"}
-
-
-def _block_outbound():
-    return {"protocol": "blackhole", "settings": {"response": {"type": "http"}}, "tag": "block"}
+    return build_xray_profile(
+        template_profile,
+        selected_profiles,
+        autoselect,
+        probe_url,
+        probe_interval,
+        direct_domains=direct_domains,
+        sticky_domains=sticky_domains,
+    )
 
 
 def _extract_port(profile, outbound):
@@ -211,10 +118,80 @@ def match_profiles(profiles, selected_node_ids, tag_filter=None):
     return matched
 
 
+def _normalize_outbound_settings(outbound):
+    """Rebuild canonical settings (vnext/servers) from flat 3x-ui fields. Public API."""
+    if not isinstance(outbound, dict):
+        return outbound
+    protocol = str(outbound.get("protocol", "")).lower()
+    settings = outbound.get("settings")
+    if not isinstance(settings, dict):
+        settings = {}
+
+    tag = outbound.get("tag") or "unknown"
+
+    if protocol in ("vless", "vmess"):
+        if "vnext" not in settings:
+            addr = settings.get("address") or settings.get("add") or ""
+            port = settings.get("port") or 443
+            vuid = settings.get("id") or settings.get("uuid") or ""
+            flow = settings.get("flow") or ""
+            encryption = settings.get("encryption") or "none"
+            level = settings.get("level", 8)
+            if addr and vuid:
+                user_obj = {
+                    "id": str(vuid),
+                    "encryption": encryption,
+                    "level": level,
+                    "security": settings.get("security", "auto"),
+                }
+                if flow and protocol == "vless":
+                    user_obj["flow"] = flow
+                if protocol == "vmess":
+                    user_obj["alterId"] = settings.get("alterId", 0)
+
+                outbound["settings"] = {
+                    "vnext": [
+                        {
+                            "address": str(addr),
+                            "port": int(port) if str(port).isdigit() else port,
+                            "users": [user_obj],
+                        }
+                    ]
+                }
+                log(f"WARNING: Invalid {protocol.upper()} outbound detected '{tag}' ({addr}:{port}): missing vnext, auto-fixing applied")
+
+    elif protocol == "trojan":
+        if "servers" not in settings:
+            addr = settings.get("address") or settings.get("add") or ""
+            port = settings.get("port") or 443
+            password = settings.get("password") or settings.get("id") or ""
+            level = settings.get("level", 8)
+            if addr and password:
+                outbound["settings"] = {
+                    "servers": [
+                        {
+                            "address": str(addr),
+                            "port": int(port) if str(port).isdigit() else port,
+                            "password": str(password),
+                            "level": level,
+                        }
+                    ]
+                }
+                log(f"WARNING: Invalid TROJAN outbound detected '{tag}' ({addr}:{port}): missing servers, auto-fixing applied")
+
+    final_settings = outbound.get("settings", {})
+    if protocol in ("vless", "vmess") and "vnext" not in final_settings:
+        log(f"WARNING: Outbound '{tag}' protocol '{protocol}' is missing 'vnext' section!")
+    elif protocol == "trojan" and "servers" not in final_settings:
+        log(f"WARNING: Outbound '{tag}' protocol 'trojan' is missing 'servers' section!")
+
+    return outbound
+
+
 def _sub_headers(resp_headers):
     h = {}
     keys = (
-        "Subscription-Userinfo", "Profile-Title", "Content-Disposition", 
+        "Subscription-Userinfo", "Profile-Title", "Content-Disposition",
         "Profile-Update-Interval", "Profile-Web-Page-Url",
         "Announce", "Routing", "Routing-Enable"
     )
@@ -225,7 +202,11 @@ def _sub_headers(resp_headers):
     return h
 
 
-async def build_for_subscription(sub_id, storage, query="", http_manager=None):
+async def build_for_subscription(sub_id, storage, query="", http_manager=None, out_format="xray"):
+    format_key = str(out_format or "xray").strip().lower()
+    if format_key not in WIRE_FORMATS:
+        format_key = "xray"
+
     sub_ref = fingerprint_secret(sub_id)
     cfg_probe_url, cfg_probe_interval = await storage.get_probe_config()
 
@@ -289,6 +270,12 @@ async def build_for_subscription(sub_id, storage, query="", http_manager=None):
     log(f"sub_id_hash={sub_ref}: autoselects in db: {[(a['id'], a['selected_node_ids']) for a in autoselects]}")
     by_id = {a.get("id"): a for a in autoselects if a.get("enabled", True)}
     direct_domains = await storage.get_direct_domains()
+    try:
+        sticky_domains = await storage.get_sticky_domains()
+    except Exception:
+        sticky_domains = []
+    if not isinstance(sticky_domains, list):
+        sticky_domains = []
 
     enriched = enrich_profiles(profiles)
     template = enriched[0] if enriched else profiles[0]
@@ -324,7 +311,7 @@ async def build_for_subscription(sub_id, storage, query="", http_manager=None):
             remaining_profiles.append(p)
             remaining_enriched.append(e)
 
-    auto_profiles = []
+    pool_specs = []
     for auto_id in allowed_ids:
         auto = by_id.get(auto_id)
         if not auto:
@@ -338,95 +325,83 @@ async def build_for_subscription(sub_id, storage, query="", http_manager=None):
             tags_in_pool = set(str(p.get("_tag", "")) for p in remaining_enriched)
             log(f"sub_id_hash={sub_ref}: pool tags={tags_in_pool}")
             continue
-        generated = build_autoselect_profile(
-            template,
-            matched,
-            auto,
-            cfg_probe_url,
-            cfg_probe_interval,
-            direct_domains,
-        )
-        if generated:
-            auto_profiles.append(generated)
+        pool_specs.append((auto, matched))
+
+    if format_key == "xray":
+        auto_profiles = []
+        for auto, matched in pool_specs:
+            generated = build_xray_profile(
+                template,
+                matched,
+                auto,
+                cfg_probe_url,
+                cfg_probe_interval,
+                direct_domains,
+                sticky_domains,
+            )
+            if generated:
+                auto_profiles.append(generated)
+            else:
+                log(f"sub_id_hash={sub_ref}: autoselect '{auto.get('id')}' build returned None")
+
+        if not auto_profiles:
+            log(f"sub_id_hash={sub_ref}: no autoselects matched (allowed_ids={allowed_ids} autoselects={len(autoselects)})")
+            return original_text, content_type, sub_headers
+
+        output = dummy_nodes + auto_profiles + remaining_profiles
+    else:
+        nodes = []
+        used_tags = set()
+        tag_by_profile = {}
+        for i, e in enumerate(remaining_enriched):
+            outbound = e.get("_outbound")
+            if not outbound:
+                continue
+            tag = unique_tag(node_name(e, i), used_tags)
+            outbound_copy = copy.deepcopy(outbound)
+            outbound_copy["tag"] = tag
+            outbound_copy = _normalize_outbound_settings(outbound_copy)
+            outbound_copy["tag"] = tag
+            nodes.append((tag, outbound_copy))
+            tag_by_profile[id(e)] = tag
+
+        groups = []
+        for auto, matched in pool_specs:
+            member_tags = [tag_by_profile[id(p)] for p in matched if id(p) in tag_by_profile]
+            if member_tags:
+                groups.append((auto, member_tags))
+
+        if not groups:
+            log(f"sub_id_hash={sub_ref}: no convertible groups for {format_key}, passthrough")
+            return original_text, content_type, sub_headers
+
+        generator_kwargs = {
+            "probe_url": cfg_probe_url,
+            "probe_interval": cfg_probe_interval,
+            "direct_domains": direct_domains,
+            "sticky_domains": sticky_domains,
+        }
+        if format_key == "singbox":
+            document = build_singbox_document(nodes, groups, **generator_kwargs)
+            payload = json.dumps(document, ensure_ascii=False, separators=(",", ":"))
+            generated_type = "application/json; charset=utf-8"
+        elif format_key == "links":
+            links = build_links_document(nodes)
+            if not links:
+                log(f"sub_id_hash={sub_ref}: no convertible nodes for links, passthrough")
+                return original_text, content_type, sub_headers
+            payload = encode_links_payload(links)
+            generated_type = "text/plain; charset=utf-8"
         else:
-            log(f"sub_id_hash={sub_ref}: autoselect '{auto_id}' build_autoselect_profile returned None")
+            document = build_clash_document(nodes, groups, **generator_kwargs)
+            payload = dumps_clash(document)
+            generated_type = "text/yaml; charset=utf-8"
 
-    if not auto_profiles:
-        log(f"sub_id_hash={sub_ref}: no autoselects matched (allowed_ids={allowed_ids} autoselects={len(autoselects)})")
-        return original_text, content_type, sub_headers
+        email = mask_email(client.get("email"))
+        log(f"sub_id_hash={sub_ref}: generated {len(groups)} autoselect groups ({format_key}) for {email}")
+        return payload, generated_type, sub_headers
 
-    output = dummy_nodes + auto_profiles + remaining_profiles
-    
     # Clean internal fields and inject address/port/inbounds/outbounds for v2rayNG/Happ ping
-    def _normalize_outbound_settings(outbound):
-        if not isinstance(outbound, dict):
-            return outbound
-        protocol = str(outbound.get("protocol", "")).lower()
-        settings = outbound.get("settings")
-        if not isinstance(settings, dict):
-            settings = {}
-
-        tag = outbound.get("tag") or "unknown"
-
-        if protocol in ("vless", "vmess"):
-            if "vnext" not in settings:
-                addr = settings.get("address") or settings.get("add") or ""
-                port = settings.get("port") or 443
-                vuid = settings.get("id") or settings.get("uuid") or ""
-                flow = settings.get("flow") or ""
-                encryption = settings.get("encryption") or "none"
-                level = settings.get("level", 8)
-                if addr and vuid:
-                    user_obj = {
-                        "id": str(vuid),
-                        "encryption": encryption,
-                        "level": level,
-                        "security": settings.get("security", "auto"),
-                    }
-                    if flow and protocol == "vless":
-                        user_obj["flow"] = flow
-                    if protocol == "vmess":
-                        user_obj["alterId"] = settings.get("alterId", 0)
-
-                    outbound["settings"] = {
-                        "vnext": [
-                            {
-                                "address": str(addr),
-                                "port": int(port) if str(port).isdigit() else port,
-                                "users": [user_obj],
-                            }
-                        ]
-                    }
-                    log(f"WARNING: Invalid {protocol.upper()} outbound detected '{tag}' ({addr}:{port}): missing vnext, auto-fixing applied")
-
-        elif protocol == "trojan":
-            if "servers" not in settings:
-                addr = settings.get("address") or settings.get("add") or ""
-                port = settings.get("port") or 443
-                password = settings.get("password") or settings.get("id") or ""
-                level = settings.get("level", 8)
-                if addr and password:
-                    outbound["settings"] = {
-                        "servers": [
-                            {
-                                "address": str(addr),
-                                "port": int(port) if str(port).isdigit() else port,
-                                "password": str(password),
-                                "level": level,
-                            }
-                        ]
-                    }
-                    log(f"WARNING: Invalid TROJAN outbound detected '{tag}' ({addr}:{port}): missing servers, auto-fixing applied")
-
-        # Validate final structure
-        final_settings = outbound.get("settings", {})
-        if protocol in ("vless", "vmess") and "vnext" not in final_settings:
-            log(f"WARNING: Outbound '{tag}' protocol '{protocol}' is missing 'vnext' section!")
-        elif protocol == "trojan" and "servers" not in final_settings:
-            log(f"WARNING: Outbound '{tag}' protocol 'trojan' is missing 'servers' section!")
-
-        return outbound
-
     def _clean(p):
         if not isinstance(p, dict):
             return p

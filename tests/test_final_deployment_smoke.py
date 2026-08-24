@@ -42,7 +42,7 @@ def test_fresh_install_tree_initializes_shared_database(tmp_path):
         store = Storage(layout.shared / "data.db", backup_dir=layout.shared / "backups")
         await store.connect()
         try:
-            assert await store.get_meta("schema_version") == "4"
+            assert await store.get_meta("schema_version") == "5"
         finally:
             await store.close()
 

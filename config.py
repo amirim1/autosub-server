@@ -6,7 +6,7 @@ from logger import logger
 from runtime_paths import get_autosub_root, get_release_dir, get_shared_dir
 
 
-VERSION = "3.1.0"
+VERSION = "3.2.0"
 
 DEFAULT_DIRECT_DOMAINS = (
     "domain:max.ru",
@@ -94,6 +94,13 @@ DEFAULT_DIRECT_DOMAINS = (
 DIRECT_DOMAIN_PREFIXES = ("domain:", "full:", "keyword:", "regexp:", "geosite:")
 MAX_DIRECT_DOMAINS = 512
 MAX_DIRECT_DOMAIN_LENGTH = 512
+
+DEFAULT_STICKY_DOMAINS: tuple[str, ...] = ()
+
+SUPPORTED_AUTOSELECT_STRATEGIES = ("leastPing", "leastLoad")
+
+DEFAULT_MIN_PROBE_INTERVAL_SECONDS = 60
+MIN_PROBE_INTERVAL_ENV = "AUTOSUB_MIN_PROBE_INTERVAL"
 
 
 def normalize_direct_domains(values):
@@ -249,8 +256,10 @@ def validate_legacy_config(data):
         seen_ids.add(autoselect_id)
         if "name" in auto and not isinstance(auto["name"], str):
             raise LegacyConfigError(f"legacy autoselect {index} field name must be a string")
-        if "strategy" in auto and auto["strategy"] not in {"leastPing", "leastLoad"}:
+        if "strategy" in auto and auto["strategy"] not in SUPPORTED_AUTOSELECT_STRATEGIES:
             raise LegacyConfigError(f"legacy autoselect {index} has an invalid strategy")
+        if "country_scope" in auto and not isinstance(auto["country_scope"], bool):
+            raise LegacyConfigError(f"legacy autoselect {index} field country_scope must be boolean")
         for field in ("selected_node_ids", "tag_filter"):
             if field in auto:
                 _require_string_list(auto[field], f"autoselects[{index}].{field}")

@@ -2,7 +2,53 @@
 
 All notable changes to AutoSub Server will be documented in this file.
 
-## [Unreleased]
+## [v3.2.0] - 2026-08-24
+
+### Fixed
+- Landing stylesheet is now versioned by app version (`?v=`), fixing stale-cache
+  rendering after updates (tabs/cards appeared unstyled for 24h).
+- v2RayTun deep link switched to the documented raw-URL form
+  (`v2raytun://import/{url}`); deep-link schemes became overridable per client via
+  `AUTOSUB_LANDING_OVERRIDES` (`deep_link_scheme` with `{b64}` or `{url}`
+  placeholder) — Happ desktop does not parse `happ://add/{base64}` deep links,
+  so the raw-URL variant can be enabled without code changes.
+
+### Added
+- Redesigned public landing page (`/sub/` HTML): platform tabs (Android,
+  Android TV, iOS, Windows, macOS — CSS-only, no JavaScript), per-client cards
+  with verified download links (Happ, v2RayTun) and one-tap deep links
+  (`happ://add/…`, `v2raytun://import/…`, `incy://import/…`) that open the
+  client with the subscription pre-filled. Advanced mode keeps the raw JSON
+  link and copyable subscription URL.
+- New `landing_catalog.py`: server-side client/download catalog. All external
+  landing URLs originate here or from `AUTOSUB_LANDING_OVERRIDES` (JSON,
+  http(s)-only) — never from upstream data. `AUTOSUB_PUBLIC_URL` sets the
+  public origin embedded into deep links.
+- Client profile registry (`client_profiles.py`): connecting apps are identified
+  via `?client=` override or `User-Agent` detection (priority: query → UA → generic)
+  and receive their default wire format. Profiles: Happ, Incy and v2RayTun → Xray
+  array (each autoselect and node shown as a separate server card with balancers
+  embedded); sing-box/Clash as before; generic → xray (unchanged).
+- New optional wire format `links`/`base64`: Base64-encoded list of standard
+  share-link URIs (vless/vmess/trojan/ss over reality/tls/ws/grpc/tcp/httpupgrade),
+  served as `text/plain`. Available only via explicit `?format=`.
+- Unknown or repeated `?client=` values return HTTP 400; the parameter is stripped
+  from upstream queries on `/sub/`.
+- Session-sticky balancer generation: `sticky_domains` (meta) route geo-sensitive
+  services through a fixed first node, and per-autoselect `country_scope` (schema v5)
+  restricts auto-balancing to a single detected country group.
+- New subscription output formats: `singbox` and `clash` via `/json/{sub_id}?format=…`
+  or automatic client User-Agent detection on `/sub/`; Xray remains the default and
+  is byte-compatible.
+- DNS/egress coupling: generated Xray configs route resolver traffic through the
+  same sticky/scoped path; sing-box DNS servers use `detour` to the pinned target.
+
+### Changed
+- Generated health-check intervals are clamped to a 60s anti-flapping floor,
+  overridable with `AUTOSUB_MIN_PROBE_INTERVAL`.
+- Strategy validation now shares one whitelist (`config.SUPPORTED_AUTOSELECT_STRATEGIES`)
+  across builder, storage and dashboard; new modules `balancer.py` and `generators.py`.
+- PyYAML added as a runtime dependency for Clash output serialization.
 
 ## [v3.1.0] - 2026-08-14
 

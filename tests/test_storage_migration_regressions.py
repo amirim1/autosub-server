@@ -73,7 +73,7 @@ def test_new_database_pragmas_schema_version_and_reinitialization(tmp_path):
         db_path = tmp_path / "new.db"
         store = Storage(db_path)
         await store.connect()
-        assert await store.get_meta("schema_version") == "4"
+        assert await store.get_meta("schema_version") == "5"
         assert store.last_backup_path is None
         for pragma, expected in [
             ("journal_mode", "wal"),
@@ -87,7 +87,7 @@ def test_new_database_pragmas_schema_version_and_reinitialization(tmp_path):
 
         reopened = Storage(db_path)
         await reopened.connect()
-        assert await reopened.get_meta("schema_version") == "4"
+        assert await reopened.get_meta("schema_version") == "5"
         assert reopened.last_backup_path is None
         await reopened.close()
 
@@ -104,7 +104,7 @@ def test_migration_from_reconstructable_schema_versions_preserves_data(
     async def exercise():
         store = Storage(db_path)
         await store.connect()
-        assert await store.get_meta("schema_version") == "4"
+        assert await store.get_meta("schema_version") == "5"
         assert store.last_backup_path.parent == tmp_path / "shared" / "backups"
         async with store.conn.execute("PRAGMA table_info(node_catalog)") as cursor:
             node_columns = {row["name"] for row in await cursor.fetchall()}
@@ -126,7 +126,7 @@ def test_migration_from_reconstructable_schema_versions_preserves_data(
 
         reopened = Storage(db_path)
         await reopened.connect()
-        assert await reopened.get_meta("schema_version") == "4"
+        assert await reopened.get_meta("schema_version") == "5"
         await reopened.close()
 
     asyncio.run(exercise())
@@ -209,7 +209,7 @@ def test_read_only_current_database_can_initialize_but_rejects_writes(
         store = Storage(f"file:{db_path.as_posix()}?mode=ro")
         await store.connect()
         try:
-            assert await store.get_meta("schema_version") == "4"
+            assert await store.get_meta("schema_version") == "5"
             with pytest.raises(sqlite3.OperationalError):
                 await store.set_meta("write", "rejected")
         finally:

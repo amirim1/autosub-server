@@ -35,6 +35,7 @@ def test_save_admin_form_persists_autoselect_strategy():
         tag_filter=[],
         name="Auto",
         strategy="leastLoad",
+        country_scope=False,
     )
     storage.set_security_rules.assert_awaited_once_with(
         {

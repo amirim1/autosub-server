@@ -12,13 +12,14 @@ repository runs retain the repository-local default.
 - `client_groups` — primary group assignment and client email keyed by subscription ID.
 - `node_catalog` — discovered nodes, fingerprints, canonical IDs, protocol, address, port, network, security and display tag.
 - `group_rules` — maps client group names to autoselect IDs.
-- `autoselects` — autoselect definitions, strategy, selected node IDs, tag filters and enabled state.
+- `autoselects` — autoselect definitions, strategy, selected node IDs, tag filters, country scope and enabled state.
 - `client_group_overrides` — explicit group overrides keyed by a stable key such as email or subscription identifier.
 
-The singleton `direct_domains` setting is stored as a validated JSON list in `meta`.
-An absent key means the built-in Russian-site defaults, while a stored empty list is
-an intentional override. Because this uses the existing key/value table, it does not
-change the schema version and remains compatible with existing databases.
+The singleton `direct_domains` and `sticky_domains` settings are stored as validated
+JSON lists in `meta`. An absent key means the built-in defaults (empty for sticky
+domains), while a stored empty list is an intentional override. Because these use the
+existing key/value table, they do not change the schema version and remain compatible
+with existing databases.
 
 Relationships are application-enforced: `group_rules.autoselect_id` refers to an autoselect definition, while selected node IDs refer to the current node catalog. Deleting an autoselect also removes its group rules.
 

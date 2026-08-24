@@ -57,6 +57,13 @@ async def _to_v4(connection):
     await connection.execute("CREATE INDEX idx_node_catalog_name ON node_catalog(name)")
 
 
+async def _to_v5(connection):
+    await _ensure_common_schema(connection)
+    await connection.execute(
+        "ALTER TABLE autoselects ADD COLUMN country_scope INTEGER NOT NULL DEFAULT 0"
+    )
+
+
 @dataclass(frozen=True)
 class MigrationStep:
     target: int
@@ -68,6 +75,7 @@ MIGRATIONS = {
     2: MigrationStep(2, _to_v2),
     3: MigrationStep(3, _to_v3),
     4: MigrationStep(4, _to_v4),
+    5: MigrationStep(5, _to_v5),
 }
 
 

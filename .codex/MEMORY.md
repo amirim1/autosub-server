@@ -38,7 +38,9 @@ AutoSub Server — локальный прокси JSON-подписок для 
 ## Architecture
 
 - `autosub_server.py` — FastAPI lifecycle, маршруты `/json/{sub_id}`, `/sub/{sub_id}`, `/admin`, `/health` и security controls.
-- `builder.py` — разбор, нормализация и генерация Xray-профилей.
+- `builder.py` — разбор, нормализация и оркестрация генерации подписок.
+- `balancer.py` — анализ пула балансировщика: детект страны ноды (flag-эмодзи/токены/ISO), группировка, клэмпинг интервала health-check.
+- `generators.py` — генераторы Xray/sing-box/Clash.Meta и конвертеры outbound (vless/vmess/trojan/ss).
 - `api_client.py` — HTTP/API-клиент 3x-ui без собственного response cache.
 - `subscription_cache.py` — bounded LRU/TTL-кэш готовых публичных подписок,
   per-key single-flight, stale-if-error и поколенческая инвалидация.
@@ -74,6 +76,16 @@ Python 3.10+, FastAPI, Uvicorn, httpx, aiosqlite, Jinja2, pytest, pytest-asyncio
 - `/json/` всегда возвращает generated JSON; `/sub/` поддерживает explicit
   `format=json|html`, weighted Accept и local-only HTML. Upstream HTML никогда не
   исполняется под origin AutoSub.
+- Wire-форматы подписок: `xray` (по умолчанию, байт-совместимо), `singbox`, `clash`;
+  выбор через `?format=` или UA-сниффинг; cache variant включает wire format.
+  PyYAML — runtime-зависимость для Clash.
+- Схема БД v5: `autoselects.country_scope` (одна страна в балансировщике);
+  `sticky_domains` в `meta` маршрутизируются на фиксированную первую ноду пула
+  с приоритетом над `direct_domains`; DNS-трафик генерации следует тому же пути.
+- Интервал health-check в генерации клампится полом 60s; override —
+  env `AUTOSUB_MIN_PROBE_INTERVAL`. Whitelist стратегий один — в `config.py`.
+- Xray-core не имеет sourceIP/balancer-стратегии со stickiness; липкость
+  реализуется routing rules + country-scoped balancers.
 - Рабочая ветка — `dev`, production — `main`.
 - `XUI_SUB_URL` используется для получения подписки; `XUI_API_URL` — для API панели; `XUI_URL` — fallback.
 

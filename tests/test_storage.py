@@ -120,7 +120,7 @@ def test_direct_domains_default_and_persistence(tmp_path):
         reopened = Storage(db_file)
         await reopened.connect()
         assert await reopened.get_direct_domains() == []
-        assert await reopened.get_meta("schema_version") == "4"
+        assert await reopened.get_meta("schema_version") == "5"
         await reopened.close()
 
     asyncio.run(_test())
