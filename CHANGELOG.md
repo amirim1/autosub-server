@@ -2,7 +2,7 @@
 
 All notable changes to AutoSub Server will be documented in this file.
 
-## [Unreleased]
+## [v3.2.0] - 2026-08-24
 
 ### Fixed
 - Landing stylesheet is now versioned by app version (`?v=`), fixing stale-cache

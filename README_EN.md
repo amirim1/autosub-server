@@ -110,7 +110,7 @@ curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/dev/install.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/amirim1/autosub-server/main/install.sh \
-  | AUTOSUB_VERSION=v3.1.0 bash
+  | AUTOSUB_VERSION=v3.2.0 bash
 ```
 
 The installer resolves `latest` through GitHub Releases, fetches the exact ref,
@@ -212,7 +212,7 @@ AUTOSUB_VERSION=dev /opt/autosub-server/update.sh
 ### Pinned release
 
 ```bash
-AUTOSUB_VERSION=v3.1.0 /opt/autosub-server/update.sh
+AUTOSUB_VERSION=v3.2.0 /opt/autosub-server/update.sh
 ```
 
 The updater takes a lock, checks disk/Python requirements, backs up SQLite,
