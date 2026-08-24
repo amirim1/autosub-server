@@ -1,5 +1,16 @@
 # AutoSub Server
 
+> [!WARNING]
+> ## 🔒 Проект архивирован и больше не поддерживается
+> **24 августа 2026** вышла [3x-ui **v3.7.0**](https://github.com/MHSanaei/3x-ui/releases/tag/v3.7.0) со встроенными
+> **клиентскими балансировщиками в JSON-подписке** — ключевая функция AutoSub Server теперь является частью самой панели.
+>
+> - Репозиторий заморожен в режиме read-only. Форки и повторное использование кода приветствуются.
+> - Установленные копии продолжают работать; последний релиз — [v3.2.0](https://github.com/amirim1/autosub-server/releases/tag/v3.2.0).
+> - Вернуть проект к жизни можно в любой момент: **Settings → General → Unarchive this repository**.
+>
+> Спасибо, что пользовались. ✌️
+
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/amirim1/autosub-server/actions/workflows/ci.yml/badge.svg)](https://github.com/amirim1/autosub-server/actions/workflows/ci.yml)
 [![Latest Release](https://img.shields.io/github/v/release/amirim1/autosub-server)](https://github.com/amirim1/autosub-server/releases/latest)
